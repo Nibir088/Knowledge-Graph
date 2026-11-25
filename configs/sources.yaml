@@ -2,7 +2,7 @@
 # Everything is written under `out`. Delete a source's block to skip it.
 # Values marked EXAMPLE are placeholders: set them to your study area / storm.
 
-out: raw
+out: /scratch/wyr6fx/knowledge-graph/raw
 
 wbd:                      # HUC8/10/12 polygons, one GDB per HUC2 region
   huc2: ["03", "17", "18"]    # 03 South Atlantic-Gulf (NC), 17 Pacific NW (WA), 18 California
