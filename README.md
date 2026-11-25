@@ -73,3 +73,28 @@ Every source is collected for the whole United States; data that comes per state
 (FEMA flood zones, water quality, ECHO) is stored one folder per state, e.g.
 `raw/wqp/NC/`, so a study can pick its states. Set `out` in `configs/sources.yaml` first.
 How each source is downloaded, with its gaps: [docs/data_sources.md](docs/data_sources.md).
+
+## Checking what we have for one state
+
+`scripts/inspect_state.py` reads the download folder (it changes nothing) and shows
+everything collected for one state, for manual verification:
+
+```bash
+python scripts/inspect_state.py --raw /scratch/wyr6fx/knowledge-graph/raw --state NC
+python scripts/inspect_state.py --raw /scratch/wyr6fx/knowledge-graph/raw --state NC \
+    --focus-huc4 0302 0303 --date 2018-09-16 --out inspect_NC
+```
+
+It writes to `inspect_<ST>/`:
+
+| File | What it is |
+|---|---|
+| `report.md` | one section per dataset (OK / PARTIAL / MISSING / N/A): counts, types, date ranges, units, and a "check by hand" list |
+| `cafo_links.csv` | one row per CAFO with what each dataset says at that spot: HUC12, NHDPlus catchment, nearest NHD pond and its type, nearest stream and its order, Atlas 14 25-yr 24-h depth, Stage IV rainfall on `--date`, FEMA flood zone, nearest water-quality station, nearest ECHO NPDES facility |
+| `map.html` | interactive map: CAFOs (click for all the links above), satellite imagery to check lagoons, rainfall on `--date`, Atlas 14 grid, FEMA SFHA, NHDPlus streams and nearby ponds, WQP stations, ECHO CAFO permits, HUC8 outlines |
+
+The state's area comes from WBD's `states` column. NHDPlus links, streams and flood
+zones are computed for the focus HUC4s only (default: the two with the most CAFOs);
+everything else covers the whole state. `--min-order` sets the smallest stream order
+drawn (default 4); lower values make the map heavier. Rainfall days that exist only
+as GRIB (2016, 2019, 2020) are read from the tar and converted from mm to inches.
