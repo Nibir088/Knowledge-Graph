@@ -27,12 +27,13 @@ def log(msg: str) -> None:
     print(msg, flush=True)
 
 
-def get(sess: requests.Session, url: str, retries: int = 6, timeout: int = 300, **kw) -> requests.Response:
-    """GET with exponential-backoff retries on network errors and 429/5xx."""
+def get(sess: requests.Session, url: str, retries: int = 6, timeout: int = 300,
+        method: str = "GET", **kw) -> requests.Response:
+    """GET (or another method) with exponential-backoff retries on network errors and 429/5xx."""
     last = None
     for attempt in range(retries):
         try:
-            r = sess.get(url, timeout=timeout, **kw)
+            r = sess.request(method, url, timeout=timeout, **kw)
             if r.status_code in (429, 500, 502, 503, 504):
                 raise requests.HTTPError(f"HTTP {r.status_code}", response=r)
             r.raise_for_status()
@@ -134,3 +135,52 @@ def write_gdf(gdf, path: Path) -> None:
 
 def rmtree(path: Path) -> None:
     shutil.rmtree(path, ignore_errors=True)
+
+
+def arcgis_layer(sess: requests.Session, layer_url: str, where: str = "1=1", batch: int = 500):
+    """Read every feature of an ArcGIS REST map/feature layer into a GeoDataFrame (EPSG:4326).
+
+    Object IDs are fetched first, then features in batches, so the server's
+    maxRecordCount never truncates the result. Esri date fields (epoch ms) become datetimes.
+    """
+    import geopandas as gpd
+    import pandas as pd
+
+    meta = get(sess, layer_url, params={"f": "json"}).json()
+    ids = get(sess, layer_url + "/query",
+              params={"where": where, "returnIdsOnly": "true", "f": "json"}).json()
+    if "error" in ids:
+        raise RuntimeError(f"{layer_url}: {ids['error']}")
+    oid_field, oids = ids["objectIdFieldName"], sorted(ids.get("objectIds") or [])
+    feats = []
+    for i in range(0, len(oids), batch):
+        chunk = oids[i:i + batch]
+        js = get(sess, layer_url + "/query", method="POST", data={  # POST: long id lists
+            "objectIds": ",".join(map(str, chunk)), "outFields": "*", "outSR": 4326,
+            "returnGeometry": "true", "f": "geojson"}).json()
+        if "error" in js:
+            raise RuntimeError(f"{layer_url}: {js['error']}")
+        feats.extend(js["features"])
+    gdf = gpd.GeoDataFrame.from_features(feats, crs=4326) if feats else gpd.GeoDataFrame(geometry=[], crs=4326)
+    for f in meta.get("fields") or []:
+        if f["type"] == "esriFieldTypeDate" and f["name"] in gdf:
+            gdf[f["name"]] = pd.to_datetime(gdf[f["name"]], unit="ms", errors="coerce")
+    if len(gdf) != len(oids):
+        log(f"    warning: {len(oids)} ids but {len(gdf)} features from {layer_url}")
+    gdf.attrs["source"] = layer_url
+    gdf.attrs["object_id_field"] = oid_field
+    return gdf
+
+
+def flag_bbox(gdf, bbox: tuple[float, float, float, float]):
+    """Add coord_ok: True when the point lies inside bbox (lon_min, lat_min, lon_max, lat_max).
+
+    Source records with swapped lat/lon, a missing minus sign or a 0/90 placeholder get
+    False; they are kept, not corrected.
+    """
+    pts = gdf.geometry.representative_point()
+    gdf["coord_ok"] = pts.x.between(bbox[0], bbox[2]) & pts.y.between(bbox[1], bbox[3])
+    bad = int((~gdf["coord_ok"]).sum())
+    if bad:
+        log(f"    {bad} records with coordinates outside {bbox} (coord_ok = False)")
+    return gdf

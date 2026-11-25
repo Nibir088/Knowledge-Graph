@@ -59,6 +59,8 @@ Notes:
 | `wqp` | Water Quality Portal | nitrate, ammonia, E. coli samples |
 | `echo` | EPA ECHO ICIS-NPDES | permitted facilities, inspections, violations |
 | `nc_deq` | NC DEQ permitted animal facilities | CAFO IDs, type, lagoon counts |
+| `ia_dnr` | Iowa DNR animal feeding operations | every IA AFO/CAFO, animal units, head counts by species |
+| `ca_cafo` | CA Water Boards (CIWQS) + Cal-FF (Stanford RegLab) | permitted CA CAFOs; satellite census with footprints |
 | `wa_ecology` | WA Ecology water rights | points of diversion, places of use |
 | `ca_calwatrs` | CA water rights (CalWATRS, replaces eWRIMS) | points of diversion, places of use |
 

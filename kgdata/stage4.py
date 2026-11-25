@@ -9,9 +9,10 @@ Source (one folder per day):
 Each "day" is the 24 h ending 12:00 UTC on that date. Grid: HRAP polar stereographic,
 ~4.76 km cells.
 
-NWPS publishes daily totals only. The archive starts 2016-01-01, but the daily
-GeoTIFF/netCDF files start 2017-01-01; for 2016 only the GRIB source archive exists. Hourly Stage IV is
-not on this server. Output: <out>/stage4/YYYY/YYYYMMDD/<file>.
+NWPS publishes daily totals only. The archive starts 2016-01-01, but there are no daily
+GeoTIFF/netCDF files for 2016, 2019 and 2020 (and a few single days); for those only the
+GRIB source archive exists (<area>_YYYYMMDD_24h.grb.gz inside; CONUS only in 2016).
+Hourly Stage IV is not on this server. Output: <out>/stage4/YYYY/YYYYMMDD/<file>.
 """
 
 from __future__ import annotations
@@ -28,7 +29,7 @@ def run(out: Path, start: str, end: str = "latest", area="conus",
         fmt: str = "tif", source_tar: bool = False, fallback_tar: bool = True) -> None:
     """start/end: YYYY-MM-DD; end 'latest' = yesterday (UTC).
 
-    area: conus, ak, pr or a list of them. Days without a daily file (all of 2016)
+    area: conus, ak, pr or a list of them. Days without a daily file (2016, 2019, 2020)
     get the NCEP 24 h GRIB source archive instead when fallback_tar is true.
     """
     import requests

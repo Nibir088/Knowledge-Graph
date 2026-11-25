@@ -6,7 +6,8 @@
     python scripts/download_sources.py --config my.yaml --out /data/raw
 
 Each source skips files it already has, so a failed run can simply be restarted.
-Sources: wbd, atlas14, stage4, nfhl, wqp, echo, nc_deq, wa_ecology, ca_calwatrs.
+Sources: wbd, atlas14, stage4, nfhl, wqp, echo, nc_deq, ia_dnr, ca_cafo, wa_ecology,
+ca_calwatrs.
 NHDPlus HR has its own script: scripts/download_nhdplus_hr.py.
 """
 
@@ -21,7 +22,8 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from kgdata import atlas14, ca_calwatrs, echo, nc_deq, nfhl, stage4, wa_ecology, wbd, wqp  # noqa: E402
+from kgdata import (atlas14, ca_cafo, ca_calwatrs, echo, ia_dnr, nc_deq, nfhl,  # noqa: E402
+                    stage4, wa_ecology, wbd, wqp)
 
 
 def run_source(name: str, cfg: dict, out: Path) -> None:
@@ -45,6 +47,10 @@ def run_source(name: str, cfg: dict, out: Path) -> None:
         echo.run(out, cfg.get("states", "all"))
     elif name == "nc_deq":
         nc_deq.run(out)
+    elif name == "ia_dnr":
+        ia_dnr.run(out, cfg.get("layers"), cfg.get("refresh", False))
+    elif name == "ca_cafo":
+        ca_cafo.run(out, cfg.get("sources", ["ciwqs", "cal_ff"]), cfg.get("cal_ff_all", False))
     elif name == "wa_ecology":
         wa_ecology.run(out)
     elif name == "ca_calwatrs":

@@ -26,7 +26,7 @@ stage4:                   # observed daily rainfall (national grid), one folder 
   area: [conus, ak, pr]       # contiguous US, Alaska, Puerto Rico
   fmt: tif
   source_tar: false           # true = also keep the NCEP GRIB archive every day
-  fallback_tar: true          # days without a daily file (2016) get the GRIB archive
+  fallback_tar: true          # days without a daily file (2016, 2019, 2020) get the GRIB archive
 
 nfhl:                     # FEMA flood hazard zones, one folder per state
   mode: states                # states = FEMA statewide files; bbox = one box from the map service
@@ -47,6 +47,18 @@ echo:                     # ICIS-NPDES facilities, inspections, violations, one 
   states: all                 # all, or a list such as [NC, WA, CA]
 
 nc_deq: {}                # NC permitted animal facilities (CAFOs); NC only
+
+ia_dnr:                   # Iowa DNR animal feeding operations (CAFOs); IA only
+  # afo_facilities = every AFO in the DNR database (live); afo_300au = >=300 AU, finer
+  # species split (2024 snapshot). Optional context: ag_drainage_wells, sinkholes,
+  # drainage_districts
+  layers: [afo_facilities, afo_300au]
+  refresh: false              # true = re-read the live service even if the file exists
+
+ca_cafo:                  # California CAFOs; CA only
+  sources: [ciwqs, cal_ff]    # ciwqs = Water Board permit records (daily export);
+                              # cal_ff = Stanford RegLab satellite census (2,121 CAFOs)
+  cal_ff_all: false           # true = also the large Cal-FF tables (images 92 MB, counties 11 MB)
 
 wa_ecology: {}            # WA points of diversion + places of use; WA only
 
