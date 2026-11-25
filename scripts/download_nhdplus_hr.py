@@ -205,7 +205,7 @@ def read_layer(gdb: Path, layer: str, fields: list[str], spatial: bool, bbox=Non
     import pyogrio
 
     colmap = resolve_columns(gdb, layer, fields)
-    kwargs = dict(layer=layer, columns=list(colmap.values()), use_arrow=True)
+    kwargs = dict(layer=layer, columns=list(colmap.values()), use_arrow=False)
     if spatial:
         df = pyogrio.read_dataframe(gdb, bbox=bbox, **kwargs)
         df = df.set_geometry(gpd.GeoSeries(df.geometry, crs=df.crs).force_2d())
