@@ -33,6 +33,8 @@ python scripts/download_nhdplus_hr.py --huc4 0710 0708 --merge    # selected reg
 python scripts/download_nhdplus_hr.py --huc2 07 --mask study_area.gpkg --merge --delete-gdb --delete-zip
 ```
 
+Full method, step by step: [docs/nhdplus_hr_download.md](docs/nhdplus_hr_download.md).
+
 Notes:
 
 - Units: QAMA in ft³/s, VAMA in ft/s, LengthKM in km, so
