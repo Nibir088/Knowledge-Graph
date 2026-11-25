@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.venv/
+.ipynb_checkpoints/
+raw/
+data/
+outputs/
+*.zip
+*.gdb/
+*.parquet
+*.gpkg
