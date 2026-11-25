@@ -80,8 +80,8 @@ runs skip re-extraction.
 
 ### 3.5 Read the layers
 
-The layers are read with `pyogrio` (GDAL's OpenFileGDB driver) using Arrow for
-speed. Only the fields below are read, never the whole layer:
+The layers are read with `pyogrio` (GDAL's OpenFileGDB driver). Only the
+fields below are read, never the whole layer:
 
 | Layer | Fields read | Geometry | Becomes in the graph |
 |---|---|---|---|
@@ -106,6 +106,7 @@ These transformations are applied to every HUC4:
 | CRS kept as the source CRS, NAD83 (EPSG:4269) | no reprojection error is introduced; reproject downstream for area/length work |
 | `NHDPlusID`, `FromNHDPID`, `ToNHDPID`, `HydroSeq` cast to nullable 64-bit integers | the geodatabase stores these 14-digit IDs as doubles; integers join exactly |
 | `QAMA`, `VAMA` values ≤ -9000 set to NaN | USGS uses -9998 / -9999 for "not computed" |
+| `StreamOrde` value -9 set to NaN (nullable integer) | USGS uses -9 for "no stream order", e.g. on coastline reaches |
 | `ftype_name` column added to flowlines and waterbodies | readable FType labels (see 3.8) |
 | `huc4` column added to every table | provenance after merging |
 
@@ -194,9 +195,11 @@ merging joins the networks into one.
   0426), and some HUC4s have no EROM table rows at all (for example 2002,
   Hawaii). A fallback velocity is needed for those reaches.
 
-- **Split share f_e.** `Divergence` only flags main (1) and minor (2) paths;
-  NHDPlus HR has no split fraction. f_e must be assigned, for example
-  proportional to downstream QAMA or as an equal split.
+- **Split share f_e.** `Divergence` only flags main (1) and minor (2) paths.
+  The geodatabase also has a table `NHDPlusDivFracMP` with a `DivFrac` field
+  (fraction of flow at a split), but this script does not extract it yet, and in
+  HUC4 2002 (Hawaii) every value is -9998. Where no fraction is available, f_e
+  must be assigned, for example proportional to downstream QAMA or as an equal split.
 
 - **Outlets.** `ToNHDPID = 0` marks a flow with no downstream reach in the
   network (network outlet or terminal).

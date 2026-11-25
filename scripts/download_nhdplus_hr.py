@@ -243,6 +243,10 @@ def extract_layers(gdb: Path, out_dir: Path, huc4: str, bbox=None, mask=None) ->
         if c in erom:
             erom[c] = erom[c].where(erom[c] > -9000)  # -9998 / -9999 = not computed
 
+    vaa = frames["NHDPlusFlowlineVAA"]
+    if "StreamOrde" in vaa:  # -9 = no stream order assigned (e.g. coastline reaches)
+        vaa["StreamOrde"] = pd.to_numeric(vaa["StreamOrde"]).where(lambda s: s >= 0).astype("Int64")
+
     for layer, df in frames.items():
         df = df.copy()
         df["huc4"] = huc4
