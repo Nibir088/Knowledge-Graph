@@ -50,7 +50,9 @@ def run_source(name: str, cfg: dict, out: Path) -> None:
     elif name == "ia_dnr":
         ia_dnr.run(out, cfg.get("layers"), cfg.get("refresh", False))
     elif name == "ca_cafo":
-        ca_cafo.run(out, cfg.get("sources", ["ciwqs", "cal_ff"]), cfg.get("cal_ff_all", False))
+        ca_cafo.run(out, cfg.get("sources", ["ciwqs", "ciwqs_report", "cal_ff", "cadd"]),
+                    cfg.get("cal_ff_all", False), cfg.get("ciwqs_report_status", "Active"),
+                    cfg.get("cadd_url"))
     elif name == "wa_ecology":
         wa_ecology.run(out)
     elif name == "ca_calwatrs":

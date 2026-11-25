@@ -60,7 +60,7 @@ Notes:
 | `echo` | EPA ECHO ICIS-NPDES | permitted facilities, inspections, violations |
 | `nc_deq` | NC DEQ permitted animal facilities | CAFO IDs, type, lagoon counts |
 | `ia_dnr` | Iowa DNR animal feeding operations | every IA AFO/CAFO, animal units, head counts by species |
-| `ca_cafo` | CA Water Boards (CIWQS) + Cal-FF (Stanford RegLab) | permitted CA CAFOs; satellite census with footprints |
+| `ca_cafo` | CA Water Boards (CIWQS) + Cal-FF (Stanford RegLab) + CARB CADD | permitted CA CAFOs with violations; satellite census with footprints; dairy herd sizes |
 | `wa_ecology` | WA Ecology water rights | points of diversion, places of use |
 | `ca_calwatrs` | CA water rights (CalWATRS, replaces eWRIMS) | points of diversion, places of use |
 

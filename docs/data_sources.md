@@ -42,7 +42,7 @@ run can be started again. NHDPlus HR has its own script; see
 | `echo` | EPA ECHO ICIS-NPDES | permitted facilities, inspections, violations | **state** | echo.epa.gov |
 | `nc_deq` | NC DEQ permitted animal facilities | CAFO IDs, type, animal counts, lagoons | NC only | www.deq.nc.gov |
 | `ia_dnr` | Iowa DNR animal feeding operations | every AFO/CAFO, animal units, head counts by species | IA only | programs.iowadnr.gov, services3.arcgis.com |
-| `ca_cafo` | CA Water Boards CIWQS + Cal-FF | permitted CAFOs; satellite CAFO census with footprints | CA only | data.ca.gov, publish.data.ca.gov, the storage host data.ca.gov redirects to, huggingface.co (+ its CDN) |
+| `ca_cafo` | CA Water Boards CIWQS + Cal-FF + CARB CADD | permitted CAFOs with violations; satellite CAFO census with footprints; dairy herd sizes and digesters | CA only | data.ca.gov, publish.data.ca.gov, the storage host data.ca.gov redirects to, ciwqs.waterboards.ca.gov, huggingface.co (+ its CDN), ww2.arb.ca.gov |
 | `wa_ecology` | WA Ecology water rights (GWIS) | points of diversion, places of use | WA only | fortress.wa.gov |
 | `ca_calwatrs` | CA water rights (CalWATRS, replaces eWRIMS) | points of diversion, places of use | CA only | data.ca.gov, publish.data.ca.gov |
 
@@ -205,7 +205,9 @@ The state lists below fill that gap. Checked in November 2026:
 | NC | `nc_deq` | 2,099 | swine, cattle, wet poultry; dry-litter poultry is not permitted, so not listed |
 | IA | `ia_dnr` | 14,316 (12,801 active) | all sizes, confinements and open feedlots |
 | CA | `ca_cafo` (CIWQS) | 1,853 active (2,755 incl. historical, with coordinates) | permitted only; dairies dominate |
+| CA | `ca_cafo` (CIWQS report) | 1,817 active (by WDID) | same permits, plus owner, address, violations and enforcement in the last 5 years |
 | CA | `ca_cafo` (Cal-FF) | 2,121 | satellite census, ~98% of CA CAFOs as of 2017 |
+| CA | `ca_cafo` (CADD) | dairies | CARB herd sizes by year (2012 on) and digesters; not tested here (CARB rate-limits scripts) |
 | WA | none | — | Ecology's permit system (PARIS) blocks scripts; use ECHO (`echo/WA/`) for CAFO general-permit holders |
 
 ## `ia_dnr`: Iowa animal feeding operations
@@ -236,14 +238,13 @@ The state lists below fill that gap. Checked in November 2026:
 
 ## `ca_cafo`: California CAFOs
 
-- **Coverage:** California only. Two sources (`sources: [ciwqs, cal_ff]`):
+- **Coverage:** California only. Four sources (`sources: [ciwqs, ciwqs_report, cal_ff, cadd]`);
+  if one fails, the others still run.
 - **CIWQS** (State Water Board), California Open Data dataset
   `surface-water-water-quality-regulated-facility-information`, resource "Confined
   Animal Facilities Regulated by the Water Boards". A daily export of all
   animal-waste regulatory measures (programs ANIWSTCOWS, ANIWSTOTH, ANIWSTGRZ). This is
-  the same data as the CIWQS *Regulated Facility* web report with program ANIMALWASTE
-  (that report's Excel export only gives totals per region: 1,826 active facilities
-  on 2026-11-25).
+  the same permits as the CIWQS *Regulated Facility* web report (next item).
   - One row per regulatory measure: `reg_measure_type` (WDR, general-order enrollee,
     NPDES, waiver …), `status` (Active / Historical), `facility_id`, `wdid`, `cafo_type`
     (Dairies, Feedlots, Poultry, Hogs, Other), `cafo_subtype`, `cafo_population`,
@@ -253,6 +254,22 @@ The state lists below fill that gap. Checked in November 2026:
   - **Tested:** 4,856 measures (1,889 active) → 2,755 facilities with coordinates
     (1,853 with an active measure). 4 historical dairies have a longitude without its
     minus sign → `coord_ok = False`.
+- **CIWQS Regulated Facility report** (`ciwqs_report`), the web report at
+  `https://ciwqs.waterboards.ca.gov/ciwqs/readOnly/CiwqsReportServlet?inCommand=reset&reportName=RegulatedFacility`.
+  The code fills in the form like a user would (program ANIMALWASTE, status
+  `ciwqs_report_status`, default Active, all regions), opens the statewide drill-down
+  of each program (ANIWSTCOWS, ANIWSTOTH, ANIWSTGRZ) and downloads its Excel export
+  (tab-separated text). The summary page's own export only has totals per region.
+  - Extra columns compared with the open-data file: `agency` (owner) and its address,
+    `facility_address`, `complexity`, `ttwq` (threat to water quality),
+    `enforcement_actions_within_5_years`, `violations_within_5_years`.
+  - One row per facility × regulatory measure; `wdid` identifies the facility.
+  - **Tested (2026-11-25, Active):** ANIWSTCOWS 1,454 rows / 1,281 WDIDs, ANIWSTOTH
+    567 / 534, ANIWSTGRZ 7 / 2: 2,028 rows, 1,817 facilities, matching the report's
+    total of 1,826. 422 rows have violations in the last 5 years; 18 rows have no
+    coordinates.
+  - Output: `ciwqs_report_rows.parquet` (all rows), `ciwqs_report_facilities.parquet`
+    (rows with coordinates, points). Raw exports in `_raw/ciwqs_report_<date>/`.
 - **Cal-FF** (Stanford RegLab, Hugging Face `reglab/cal-ff`, CC0; Magesh et al.,
   *Scientific Data* 2025). CAFOs found in satellite imagery by a computer-vision model and
   checked by annotators; about 98% of California CAFOs as of 2017, including facilities
@@ -266,6 +283,18 @@ The state lists below fill that gap. Checked in November 2026:
     `parcel_locations`, `parcel_name_annotations`, `county_groups`.
     `cal_ff_all: true` adds `counties` (11 MB) and `images` (92 MB).
   - Addresses are redacted; RegLab shares them on request for research.
+- **CARB CADD** (`cadd`), California Dairy & Livestock Database: facility-level cattle
+  populations and digester information for CA dairies, by year from 2012 (v2.0.0,
+  October 2025, covers 2012–2023), published as one Excel workbook.
+  - The code reads CARB's CADD page and its supporting-documents page, picks the
+    `.xlsx` link with "CADD" in its name and the highest version, downloads it and
+    writes every sheet to `cadd_<sheet>.parquet` (snake_case columns; mixed text/number
+    columns stored as text).
+  - **CARB's website rate-limits automated clients** (HTTP 419 "excessive automated
+    requests"); it refused this session's shared IP, so the real workbook has not been
+    tested, only the parsing with a stand-in workbook. If it refuses your cluster too,
+    download the workbook in a browser and put it in `raw/ca_cafo/_raw/cadd/` (the
+    newest `*.xlsx` there is used), or set `cadd_url` to its direct link.
 - **Output:** `raw/ca_cafo/*.parquet`, original files in `raw/ca_cafo/_raw/`.
 
 ## `wa_ecology`: Washington points of diversion and places of use

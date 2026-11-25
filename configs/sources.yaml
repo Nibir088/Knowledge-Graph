@@ -56,9 +56,14 @@ ia_dnr:                   # Iowa DNR animal feeding operations (CAFOs); IA only
   refresh: false              # true = re-read the live service even if the file exists
 
 ca_cafo:                  # California CAFOs; CA only
-  sources: [ciwqs, cal_ff]    # ciwqs = Water Board permit records (daily export);
-                              # cal_ff = Stanford RegLab satellite census (2,121 CAFOs)
+  sources: [ciwqs, ciwqs_report, cal_ff, cadd]
+  # ciwqs        = Water Board permit records (data.ca.gov daily export, active + historical)
+  # ciwqs_report = CIWQS Regulated Facility report (adds owner, address, violations, enforcement)
+  # cal_ff       = Stanford RegLab satellite census (2,121 CAFOs, footprints)
+  # cadd         = CARB dairy & livestock database (herd sizes by year, digesters)
+  ciwqs_report_status: Active # Active, Historical/Terminated, or "" for any
   cal_ff_all: false           # true = also the large Cal-FF tables (images 92 MB, counties 11 MB)
+  cadd_url: null              # optional direct link to the CADD .xlsx if CARB blocks the page scrape
 
 wa_ecology: {}            # WA points of diversion + places of use; WA only
 
