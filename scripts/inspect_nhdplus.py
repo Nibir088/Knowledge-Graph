@@ -16,15 +16,26 @@ Reading the flow links in the popups:
   "none (outlet)"                 NHDPlusFlow says water leaves the network (ToNHDPID = 0)
   "not in network"                the reach has no NHDPlusFlow row at all
                                   (coastlines and many canals / pipelines; no VAA either)
+
+Arrows show flow direction. NHD lines are drawn from upstream to downstream; the
+report checks this against NHDPlusFlow ("orientation" section).
+
+Ponds are coloured by how they connect to the streams:
+  on network      an ArtificialPath in the flow network runs through the pond
+  off network     only flowlines outside the flow network touch it
+  isolated        no flowline touches it (off-channel farm pond, lagoon, ...)
 """
 import argparse
 import html
 import json
+import math
 from pathlib import Path
 
 import folium
 import geopandas as gpd
+import numpy as np
 import pandas as pd
+import shapely
 from shapely.geometry import box
 
 SPATIAL = {"NHDFlowline", "NHDPlusCatchment", "NHDWaterbody"}
@@ -33,6 +44,7 @@ LAYERS = ["NHDFlowline", "NHDPlusFlow", "NHDPlusFlowlineVAA",
 COLORS = {"StreamRiver": "#1665d8", "ArtificialPath": "#9333ea",
           "CanalDitch": "#e77e17", "Connector": "#64748b"}
 NOT_IN_NETWORK_COLOR = "#94a3b8"
+POND_COLORS = {"on network": "#22d3ee", "off network": "#a78bfa", "isolated": "#f97316"}
 
 
 def summarize(name, df):
@@ -81,6 +93,83 @@ def add_layer(map_, name, df, style, tooltip_fields):
     ).add_to(map_)
 
 
+def _last_part(geoms):
+    """Last LineString of each (Multi)LineString; LineStrings are returned as-is."""
+    return shapely.get_geometry(geoms, -1)
+
+
+def orientation_check(reaches, flow):
+    """Share of flow edges where the upstream line ends where the downstream line starts."""
+    g = reaches.dropna(subset=["NHDPlusID"]).drop_duplicates("NHDPlusID").set_index("NHDPlusID").geometry
+    e = flow[(flow.FromNHDPID != 0) & (flow.ToNHDPID != 0)
+             & flow.FromNHDPID.isin(g.index) & flow.ToNHDPID.isin(g.index)]
+    if e.empty:
+        return {"edges_checked": 0}
+    a = g.loc[e.FromNHDPID.to_numpy()].to_numpy()
+    b = g.loc[e.ToNHDPID.to_numpy()].to_numpy()
+    a_end = shapely.get_point(_last_part(a), -1)
+    b_start = shapely.get_point(shapely.get_geometry(b, 0), 0)
+    a_start = shapely.get_point(shapely.get_geometry(a, 0), 0)
+    b_end = shapely.get_point(_last_part(b), -1)
+    tol = 1e-6  # degrees (~0.1 m)
+    ok = shapely.distance(a_end, b_start) < tol
+    rev = ~ok & (shapely.distance(a_start, b_end) < tol)
+    return {"edges_checked": int(len(e)), "drawn_downstream": int(ok.sum()),
+            "drawn_upstream": int(rev.sum()), "endpoints_do_not_meet": int((~ok & ~rev).sum())}
+
+
+def pond_connection(ponds, reaches):
+    """Label each waterbody: on network / off network / isolated."""
+    net = reaches[reaches["in_network"]] if "in_network" in reaches else reaches
+    on_ids = set(net.WBArea_Permanent_Identifier.dropna()) if "WBArea_Permanent_Identifier" in net else set()
+    lines = reaches[reaches.geometry.notna()][["geometry"]].to_crs(ponds.crs)
+    hit = gpd.sjoin(ponds[["geometry"]], lines, how="inner", predicate="intersects").index.unique()
+    hit_net = gpd.sjoin(ponds[["geometry"]], net[["geometry"]].to_crs(ponds.crs), how="inner",
+                        predicate="intersects").index.unique()
+    lab = pd.Series("isolated", index=ponds.index)
+    lab[ponds.index.isin(hit)] = "off network"
+    lab[ponds.index.isin(hit_net) | ponds.Permanent_Identifier.isin(on_ids)] = "on network"
+    return lab
+
+
+ARROW_SVG = ('<div style="transform:rotate({a:.0f}deg);width:14px;height:14px">'
+             '<svg viewBox="0 0 10 10" width="14" height="14"><path d="M5 0 L10 10 L5 7 L0 10 Z" '
+             'fill="{fill}" stroke="#1e293b" stroke-width="0.9"/></svg></div>')
+
+
+def add_arrows(map_, lines, max_arrows, spacing_m=400):
+    """Flow-direction arrows along each line, pointing the way it is drawn (downstream)."""
+    merc = lines.to_crs(3857)
+    group = folium.FeatureGroup(name="Flow direction arrows")
+    count = 0
+    in_net = merc["in_network"] if "in_network" in merc else pd.Series(True, index=merc.index)
+    for geom, on in zip(merc.geometry, in_net):
+        if geom is None or geom.is_empty:
+            continue
+        line = shapely.line_merge(geom) if geom.geom_type == "MultiLineString" else geom
+        length = line.length
+        n = int(min(6, max(1, round(length / spacing_m))))
+        for k in range(n):
+            f = (k + 0.5) / n
+            p1 = line.interpolate(max(f - 0.02, 0), normalized=True)
+            p2 = line.interpolate(min(f + 0.02, 1), normalized=True)
+            if p1.equals(p2):
+                continue
+            angle = math.degrees(math.atan2(p2.x - p1.x, p2.y - p1.y))  # clockwise from north
+            mid = gpd.GeoSeries([line.interpolate(f, normalized=True)], crs=3857).to_crs(4326).iloc[0]
+            fill = "#fde047" if bool(on) else "#cbd5e1"
+            folium.Marker([mid.y, mid.x], icon=folium.DivIcon(
+                html=ARROW_SVG.format(a=angle, fill=fill), icon_size=(14, 14),
+                icon_anchor=(7, 7))).add_to(group)
+            count += 1
+            if count >= max_arrows:
+                print(f"Arrow limit {max_arrows} reached; raise --max-arrows to draw more")
+                group.add_to(map_)
+                return count
+    group.add_to(map_)
+    return count
+
+
 def neighbour_labels(flow, reach_ids, col, other, end_label):
     """Per reach: the neighbouring IDs on the `other` side, with 0 spelled out."""
     def fmt(s):
@@ -100,6 +189,8 @@ def main():
     ap.add_argument("--bbox", nargs=4, type=float, metavar=("WEST", "SOUTH", "EAST", "NORTH"))
     ap.add_argument("--max-features", type=int, default=15000,
                     help="Map limit per layer; errors rather than silently dropping features")
+    ap.add_argument("--max-arrows", type=int, default=5000, help="Limit on flow-direction arrows")
+    ap.add_argument("--no-arrows", action="store_true", help="Do not draw flow-direction arrows")
     args = ap.parse_args()
     if args.radius_km <= 0 or args.max_features < 1:
         ap.error("radius-km and max-features must be positive")
@@ -153,6 +244,20 @@ def main():
                                                    "FromNHDPID", "none (headwater)")
         reaches["downstream_IDs"] = neighbour_labels(flow, reaches.NHDPlusID, "FromNHDPID",
                                                      "ToNHDPID", "none (outlet)")
+        report["orientation"] = orientation_check(reaches, flow)
+        print(f"Line direction check: {report['orientation']}")
+
+    if "NHDWaterbody" in frames:
+        ponds = frames["NHDWaterbody"].copy()
+        ponds["connection"] = pond_connection(ponds, reaches)
+        frames["NHDWaterbody"] = ponds
+        report["waterbody_connection"] = {
+            "counts": ponds.connection.value_counts().to_dict(),
+            "by_type": {k: v.connection.value_counts().to_dict()
+                        for k, v in ponds.groupby(ponds.get("ftype_name", pd.Series("all", index=ponds.index)))},
+            "note": "Isolated waterbodies touch no flowline. In the graph they can be linked "
+                    "to the reach of the catchment they lie in (overland connection)."}
+        print(f"Waterbody connection: {report['waterbody_connection']['counts']}")
 
     # Add source attributes to reach popups without assuming all features have them.
     for name in ("NHDPlusFlowlineVAA", "NHDPlusEROMMA"):
@@ -211,7 +316,7 @@ def main():
         attr="Esri World Imagery", name="Satellite imagery", overlay=False).add_to(m)
     specs = [
         ("NHDPlusCatchment", {"color": "#a37500", "weight": 1, "fillColor": "#eac54f", "fillOpacity": 0.08}),
-        ("NHDWaterbody", {"color": "#0891b2", "weight": 1, "fillColor": "#22d3ee", "fillOpacity": 0.35}),
+        ("NHDWaterbody", "ponds"),
         ("NHDFlowline", None),
     ]
     for name, style in specs:
@@ -236,10 +341,19 @@ def main():
                          else COLORS.get(p.get("ftype_name"), "#1665d8"))
                 return {"color": color, "weight": 6 if selected else 2.5, "opacity": 0.95,
                         "dashArray": "4,4" if off else None}
+        elif style == "ponds":
+            def style_fn(feature):
+                c = POND_COLORS.get(feature["properties"].get("connection"), "#0891b2")
+                return {"color": c, "weight": 2, "fillColor": c, "fillOpacity": 0.4}
         else:
             def style_fn(feature, fixed=style):
                 return fixed
-        add_layer(m, name, subset, style_fn, ["NHDPlusID", "ftype_name", "LengthKM", "AreaSqKm"])
+        add_layer(m, name, subset, style_fn,
+                  ["NHDPlusID", "ftype_name", "connection", "LengthKM", "AreaSqKm"])
+        if name == "NHDFlowline" and not args.no_arrows:
+            n = add_arrows(m, subset, args.max_arrows)
+            report["map"]["arrows"] = n
+            print(f"Drew {n:,} flow-direction arrows", flush=True)
     folium.GeoJson(json.loads(window.to_json()), name="Inspection window", smooth_factor=0,
                    style_function=lambda _: {"color": "#334155", "weight": 2, "dashArray": "5,5", "fillOpacity": 0}).add_to(m)
     folium.LayerControl(collapsed=False).add_to(m)
@@ -252,7 +366,11 @@ def main():
     <span style="color:#9333ea">&#9679; Artificial path</span> &nbsp;
     <span style="color:#e77e17">&#9679; Canal/ditch</span><br>
     <span style="color:{NOT_IN_NETWORK_COLOR}">&#9476; Not in flow network (dashed)</span><br>
-    Gold: catchments &nbsp; Cyan: waterbodies<br>
+    <span style="color:#eab308">&#9650;</span> Flow direction (grey = not in network)<br>
+    Ponds: <span style="color:#22d3ee">&#9632; on network</span>
+    <span style="color:#a78bfa">&#9632; off network</span>
+    <span style="color:#f97316">&#9632; isolated</span><br>
+    Gold: catchments<br>
     Hover for IDs; click for attributes and flow links.<br>
     Toggle layers or choose Satellite imagery above.<br>
     Whole intersecting features are shown. The window limits data selection;
