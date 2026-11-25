@@ -1,0 +1,46 @@
+# Study-area settings for scripts/download_sources.py.
+# Everything is written under `out`. Delete a source's block to skip it.
+# Values marked EXAMPLE are placeholders: set them to your study area / storm.
+
+out: raw
+
+wbd:                      # HUC8/10/12 polygons, one GDB per HUC2 region
+  huc2: ["03", "17", "18"]    # 03 South Atlantic-Gulf (NC), 17 Pacific NW (WA), 18 California
+  levels: [8, 10, 12]
+
+atlas14:                  # lagoon design storm R_u: 25-year, 24-hour depth
+  regions: [orb, sw]          # orb = Ohio River basin + NC/VA/TN/KY, sw = CA + semiarid SW
+  return_period: 25
+  duration: 24h
+  points: null                # optional CSV of CAFO points for PFDS point queries
+  lat_col: location_lat_num
+  lon_col: location_long_num
+  id_col: permit_number
+
+stage4:                   # observed daily rainfall for storm s*
+  start: "2018-09-13"         # EXAMPLE: Hurricane Florence
+  end: "2018-09-20"
+  area: conus
+  fmt: tif
+  source_tar: false
+
+nfhl:                     # FEMA flood hazard zones
+  bbox: [-78.2, 34.8, -77.7, 35.2]   # EXAMPLE: Duplin/Sampson Co., NC (lon/lat)
+  only_sfha: false            # true = only the 1% annual-chance zones (A*, V*)
+  clip: true                  # clip polygons to the bbox
+  batch: 10                   # polygons per request
+
+wqp:                      # nitrate, ammonia, E. coli samples
+  statecode: ["US:37", "US:53", "US:06"]   # NC, WA, CA
+  start_year: 2015
+  end_year: 2024
+
+echo:                     # ICIS-NPDES facilities, inspections, violations
+  states: [NC, WA, CA]
+
+nc_deq: {}                # NC permitted animal facilities (CAFOs)
+
+wa_ecology: {}            # WA points of diversion + places of use
+
+ca_calwatrs:              # CA points of diversion + places of use
+  legacy_ewrims: false

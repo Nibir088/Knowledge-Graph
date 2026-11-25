@@ -1,5 +1,10 @@
 requests
 tqdm
+pyyaml
+pandas
+openpyxl
 geopandas
+shapely>=2
 pyogrio
 pyarrow
+rasterio

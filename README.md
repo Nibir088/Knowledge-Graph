@@ -44,3 +44,28 @@ Notes:
 - `Divergence` is 0 (no split), 1 (main path) or 2 (minor path); it gives no
   split fraction, so f_e must be assigned (e.g. by discharge or equal split).
 - NHDPlus HR is no longer updated by USGS; the staged files date from 2023.
+
+### All other sources
+
+`scripts/download_sources.py` downloads the remaining inputs, configured in
+`configs/sources.yaml`:
+
+| Key | Dataset | Gives you |
+|---|---|---|
+| `wbd` | USGS Watershed Boundary Dataset | HUC8/10/12 polygons |
+| `atlas14` | NOAA Atlas 14 | lagoon design storm R̄_u (25-yr, 24-h depth) |
+| `stage4` | NOAA Stage IV (NWPS) | observed daily rainfall for storm s* |
+| `nfhl` | FEMA National Flood Hazard Layer | floodplain polygons |
+| `wqp` | Water Quality Portal | nitrate, ammonia, E. coli samples |
+| `echo` | EPA ECHO ICIS-NPDES | permitted facilities, inspections, violations |
+| `nc_deq` | NC DEQ permitted animal facilities | CAFO IDs, type, lagoon counts |
+| `wa_ecology` | WA Ecology water rights | points of diversion, places of use |
+| `ca_calwatrs` | CA water rights (CalWATRS, replaces eWRIMS) | points of diversion, places of use |
+
+```bash
+python scripts/download_sources.py                     # everything in the config
+python scripts/download_sources.py --only nc_deq wqp   # selected sources
+```
+
+Edit the study area, storm dates and states in `configs/sources.yaml` first.
+How each source is downloaded, with its gaps: [docs/data_sources.md](docs/data_sources.md).
