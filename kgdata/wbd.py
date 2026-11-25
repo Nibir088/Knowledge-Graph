@@ -27,7 +27,7 @@ def run(out: Path, huc2: list[str], levels=(8, 10, 12), keep_gdb: bool = False) 
         zp = download(s, URL.format(hu2=hu2), Path(out) / "wbd" / "_zips" / f"WBD_{hu2}_HU2_GDB.zip")
         gdb = find_gdb(extract_zip(zp, root / "_gdb"))
         for lvl in levels:
-            gdf = pyogrio.read_dataframe(gdb, layer=f"WBDHU{lvl}", use_arrow=True)
+            gdf = pyogrio.read_dataframe(gdb, layer=f"WBDHU{lvl}")
             gdf.columns = [c if c == "geometry" else c.lower() for c in gdf.columns]
             write_gdf(gdf, root / f"WBDHU{lvl}.parquet")
         if not keep_gdb:

@@ -47,10 +47,9 @@ def run(out: Path, keep_gdb: bool = False) -> None:
         for layer in layers:
             info = pyogrio.read_info(gdb, layer=layer)
             if info["geometry_type"]:
-                gdf = pyogrio.read_dataframe(gdb, layer=layer, use_arrow=True).to_crs(4326)
+                gdf = pyogrio.read_dataframe(gdb, layer=layer).to_crs(4326)
             else:
-                gdf = pd.DataFrame(pyogrio.read_dataframe(gdb, layer=layer, read_geometry=False,
-                                                          use_arrow=True))
+                gdf = pd.DataFrame(pyogrio.read_dataframe(gdb, layer=layer, read_geometry=False))
             write_gdf(gdf, folder / f"{layer}.parquet")
         if not keep_gdb:
             rmtree(folder / "_gdb" / f"{name}.gdb")
