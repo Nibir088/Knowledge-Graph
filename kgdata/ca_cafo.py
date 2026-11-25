@@ -52,6 +52,7 @@ import re
 from datetime import date
 from html import unescape
 from pathlib import Path
+from urllib.parse import unquote, urljoin
 
 import pandas as pd
 
@@ -173,6 +174,11 @@ def _cadd_version(url: str) -> tuple:
     return tuple(int(x) for x in m.groups()) if m else (0, 0, 0)
 
 
+def _local_name(url: str) -> str:
+    """'.../CADD%20v2.0.0.xlsx' -> 'CADD_v2.0.0.xlsx'."""
+    return unquote(unescape(url).rsplit("/", 1)[-1]).replace(" ", "_")
+
+
 def cadd(out: Path, url: str | None = None) -> None:
     """CARB California Dairy & Livestock Database: newest public workbook, one Parquet per sheet."""
     s = session()
@@ -180,7 +186,7 @@ def cadd(out: Path, url: str | None = None) -> None:
     raw = folder / "_raw" / "cadd"
     local = sorted(raw.glob("*.xlsx")) if raw.exists() else []
     if url:
-        xlsx = download(s, url, raw / unescape(url).rsplit("/", 1)[-1].replace("%20", "_"))
+        xlsx = download(s, url, raw / _local_name(url))
     elif local:
         xlsx = max(local, key=lambda p: _cadd_version(p.name))
         log(f"[CA CADD] using {xlsx}")
@@ -192,17 +198,16 @@ def cadd(out: Path, url: str | None = None) -> None:
             except Exception as exc:  # noqa: BLE001
                 log(f"    {page}: {exc}")
                 continue
-            found |= {unescape(h) for h in XLSX_RE.findall(html) if "cadd" in h.lower()}
+            # links can be relative, root-relative or protocol-relative (//ww2.arb.ca.gov/...)
+            found |= {urljoin(page, unescape(h)) for h in XLSX_RE.findall(html) if "cadd" in h.lower()}
         if not found:
             raise RuntimeError(
                 "no CADD workbook link found (CARB's site may be rate-limiting this client). "
                 f"Download it from {CADD_PAGES[0]} in a browser and put it in {raw}/, "
                 "or set cadd_url in the config.")
         best = max(found, key=_cadd_version)
-        if best.startswith("/"):
-            best = "https://ww2.arb.ca.gov" + best
         log(f"[CA CADD] {best}")
-        xlsx = download(s, best, raw / best.rsplit("/", 1)[-1].replace("%20", "_"))
+        xlsx = download(s, best, raw / _local_name(best))
 
     sheets = pd.read_excel(xlsx, sheet_name=None)
     for name, df in sheets.items():
