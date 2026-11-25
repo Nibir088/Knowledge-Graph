@@ -1,15 +1,18 @@
 # Study-area settings for scripts/download_sources.py.
 # Everything is written under `out`. Delete a source's block to skip it.
-# Values marked EXAMPLE are placeholders: set them to your study area / storm.
+# Everything is collected for the whole United States. Data that comes per state is
+# stored in one folder per state (<out>/<source>/<ST>/...), so a study can pick states.
 
 out: /scratch/wyr6fx/knowledge-graph/raw
 
-wbd:                      # HUC8/10/12 polygons, one GDB per HUC2 region
-  huc2: ["03", "17", "18"]    # 03 South Atlantic-Gulf (NC), 17 Pacific NW (WA), 18 California
+wbd:                      # HUC8/10/12 polygons, one folder per HUC2 region (column `states` lists states)
+  huc2: ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11",
+         "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22"]
   levels: [8, 10, 12]
 
-atlas14:                  # lagoon design storm R_u: 25-year, 24-hour depth
-  regions: [orb, sw]          # orb = Ohio River basin + NC/VA/TN/KY, sw = CA + semiarid SW
+atlas14:                  # lagoon design storm R_u: 25-year, 24-hour depth, one grid per region
+  # every Atlas 14 project area; WA and OR are not covered by Atlas 14
+  regions: [sw, orb, mw, se, ne, tx, inw, ak, hi, pr]
   return_period: 25
   duration: 24h
   points: null                # optional CSV of CAFO points for PFDS point queries
@@ -17,30 +20,35 @@ atlas14:                  # lagoon design storm R_u: 25-year, 24-hour depth
   lon_col: location_long_num
   id_col: permit_number
 
-stage4:                   # observed daily rainfall for storm s*
-  start: "2018-09-13"         # EXAMPLE: Hurricane Florence
-  end: "2018-09-20"
-  area: conus
+stage4:                   # observed daily rainfall (national grid), one folder per year/day
+  start: "2016-01-01"         # first day in the NWPS archive
+  end: latest                 # latest = yesterday
+  area: [conus, ak, pr]       # contiguous US, Alaska, Puerto Rico
   fmt: tif
-  source_tar: false
+  source_tar: false           # true = also keep the NCEP GRIB archive every day
+  fallback_tar: true          # days without a daily file (2016) get the GRIB archive
 
-nfhl:                     # FEMA flood hazard zones
-  bbox: [-78.2, 34.8, -77.7, 35.2]   # EXAMPLE: Duplin/Sampson Co., NC (lon/lat)
-  only_sfha: false            # true = only the 1% annual-chance zones (A*, V*)
-  clip: true                  # clip polygons to the bbox
-  batch: 10                   # polygons per request
+nfhl:                     # FEMA flood hazard zones, one folder per state
+  mode: states                # states = FEMA statewide files; bbox = one box from the map service
+  states: all                 # all, or a list such as [NC, WA, CA]
+  keep_zip: true              # statewide zips are large (TX ~2 GB); false deletes them after use
+  # bbox mode only:
+  bbox: [-78.2, 34.8, -77.7, 35.2]
+  only_sfha: false
+  clip: true
+  batch: 10
 
-wqp:                      # nitrate, ammonia, E. coli samples
-  statecode: ["US:37", "US:53", "US:06"]   # NC, WA, CA
+wqp:                      # nitrate, ammonia, E. coli samples, one folder per state
+  states: all                 # all, or a list such as [NC, WA, CA]
   start_year: 2015
   end_year: 2024
 
-echo:                     # ICIS-NPDES facilities, inspections, violations
-  states: all                 # all = whole United States; or a list, e.g. [NC, WA, CA]
+echo:                     # ICIS-NPDES facilities, inspections, violations, one folder per state
+  states: all                 # all, or a list such as [NC, WA, CA]
 
-nc_deq: {}                # NC permitted animal facilities (CAFOs)
+nc_deq: {}                # NC permitted animal facilities (CAFOs); NC only
 
-wa_ecology: {}            # WA points of diversion + places of use
+wa_ecology: {}            # WA points of diversion + places of use; WA only
 
-ca_calwatrs:              # CA points of diversion + places of use
+ca_calwatrs:              # CA points of diversion + places of use; CA only
   legacy_ewrims: false

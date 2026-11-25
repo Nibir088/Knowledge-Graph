@@ -33,13 +33,14 @@ def run_source(name: str, cfg: dict, out: Path) -> None:
             atlas14.points(out, Path(cfg["points"]), cfg.get("lat_col", "lat"),
                            cfg.get("lon_col", "lon"), cfg.get("id_col"))
     elif name == "stage4":
-        stage4.run(out, cfg["start"], cfg["end"], cfg.get("area", "conus"),
-                   cfg.get("fmt", "tif"), cfg.get("source_tar", False))
+        stage4.run(out, cfg["start"], cfg.get("end", "latest"), cfg.get("area", "conus"),
+                   cfg.get("fmt", "tif"), cfg.get("source_tar", False), cfg.get("fallback_tar", True))
     elif name == "nfhl":
-        nfhl.run(out, tuple(cfg["bbox"]), cfg.get("only_sfha", False), cfg.get("batch", 10), cfg.get("clip", True))
+        nfhl.run(out, cfg.get("mode", "states"), cfg.get("states", "all"), cfg.get("keep_zip", True),
+                 cfg.get("bbox"), cfg.get("only_sfha", False), cfg.get("batch", 10), cfg.get("clip", True))
     elif name == "wqp":
         wqp.run(out, cfg["start_year"], cfg["end_year"], cfg.get("characteristics"),
-                cfg.get("statecode"), cfg.get("countycode"), cfg.get("huc"), cfg.get("bbox"))
+                cfg.get("states", "all"))
     elif name == "echo":
         echo.run(out, cfg.get("states", "all"))
     elif name == "nc_deq":

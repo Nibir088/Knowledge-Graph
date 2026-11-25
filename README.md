@@ -67,5 +67,7 @@ python scripts/download_sources.py                     # everything in the confi
 python scripts/download_sources.py --only nc_deq wqp   # selected sources
 ```
 
-Edit the study area, storm dates and states in `configs/sources.yaml` first.
+Every source is collected for the whole United States; data that comes per state
+(FEMA flood zones, water quality, ECHO) is stored one folder per state, e.g.
+`raw/wqp/NC/`, so a study can pick its states. Set `out` in `configs/sources.yaml` first.
 How each source is downloaded, with its gaps: [docs/data_sources.md](docs/data_sources.md).
