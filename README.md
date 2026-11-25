@@ -91,10 +91,15 @@ It writes to `inspect_<ST>/`:
 |---|---|
 | `report.md` | one section per dataset (OK / PARTIAL / MISSING / N/A): counts, types, date ranges, units, and a "check by hand" list |
 | `cafo_links.csv` | one row per CAFO with what each dataset says at that spot: HUC12, NHDPlus catchment, nearest NHD pond and its type, nearest stream and its order, Atlas 14 25-yr 24-h depth, Stage IV rainfall on `--date`, FEMA flood zone, nearest water-quality station, nearest ECHO NPDES facility |
-| `map.html` | interactive map: CAFOs (click for all the links above), satellite imagery to check lagoons, rainfall on `--date`, Atlas 14 grid, FEMA SFHA, NHDPlus streams and nearby ponds, WQP stations, ECHO CAFO permits, HUC8 outlines |
+| `samples.md` (+ `samples/*.csv`) | 10 records per dataset (`--samples`), each with links to check it against the source: Google satellite view, FEMA flood map, NOAA Atlas 14 table, ECHO facility report, WQP station page. CAFO samples include up to 3 in the floodplain; rainfall samples are the 10 wettest CAFOs on `--date` |
+| `map.html` | interactive map: CAFOs (click for all the links above, plus satellite / FEMA / NOAA links), satellite imagery to check lagoons, rainfall on `--date`, Atlas 14 grid, FEMA SFHA within 2 km of CAFOs, NHDPlus streams and nearby ponds, WQP stations, ECHO CAFO permits, HUC8 outlines |
 
 The state's area comes from WBD's `states` column. NHDPlus links, streams and flood
 zones are computed for the focus HUC4s only (default: the two with the most CAFOs);
 everything else covers the whole state. `--min-order` sets the smallest stream order
 drawn (default 4); lower values make the map heavier. Rainfall days that exist only
 as GRIB (2016, 2019, 2020) are read from the tar and converted from mm to inches.
+
+Flood zones are read one row group at a time: a statewide file is large (NC: 183,013
+polygons, 3.2 GB of geometry, more than 14 GB once loaded in geopandas). For NC the whole
+check takes about a minute and under 4 GB of memory.

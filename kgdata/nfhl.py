@@ -26,7 +26,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .common import download, extract_zip, find_gdb, get, log, rmtree, session, write_gdf
+from .common import (download, extract_zip, find_gdb, get, layer_to_parquet, log, rmtree, session,
+                     write_gdf)
 from .states import STATES, resolve
 
 MSC_SEARCH = "https://msc.fema.gov/portal/advanceSearch"
@@ -82,9 +83,8 @@ def run_states(out: Path, states="all", keep_zip: bool = True) -> None:
         rmtree(ex)
         gdb = find_gdb(extract_zip(zp, ex))
         cols = [c for c in STATE_FIELDS if c in pyogrio.read_info(gdb, layer="S_FLD_HAZ_AR")["fields"]]
-        gdf = pyogrio.read_dataframe(gdb, layer="S_FLD_HAZ_AR", columns=cols)
-        gdf["state"] = st
-        write_gdf(gdf, dest)
+        # batches: statewide layers reach 180,000+ large polygons (NC needs > 14 GB in one read)
+        layer_to_parquet(gdb, "S_FLD_HAZ_AR", dest, columns=cols, extra={"state": st})
         meta.write_text(json.dumps(info, indent=2))
         rmtree(ex)
         if not keep_zip:

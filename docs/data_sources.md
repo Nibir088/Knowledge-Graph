@@ -137,6 +137,14 @@ reachable.
 - **Output:** `raw/nfhl/<ST>/flood_hazard_zones.parquet` (EPSG:4269, as published),
   `raw/nfhl/<ST>/source.json`; bbox mode: `raw/nfhl/bbox/flood_hazard_zones.parquet` (EPSG:4326).
 
+- **Memory:** statewide layers are large (NC: 183,013 polygons; the zip is 1.5 GB and the
+  geometry 3.2 GB, mostly county-wide Zone X polygons of up to 14 MB each). Reading NC in
+  one go needed more than 14 GB and the process was killed, which also stopped every source
+  after it. The layer is now copied to Parquet in batches of 20,000 polygons (one Parquet
+  row group each); peak memory for NC is about 4 GB. Reading the whole file back with
+  `geopandas.read_parquet` still needs more than 14 GB for NC, so read it by row group, or
+  only the rows you need, e.g. `pyarrow.parquet.read_table(f, filters=[("SFHA_TF", "=", "T")])`.
+
 ## `wqp`: Water Quality Portal
 
 - **Source:** `https://www.waterqualitydata.us/data/{Station,Result}/search`

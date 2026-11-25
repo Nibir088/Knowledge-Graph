@@ -13,6 +13,9 @@ Reads the download folders only (nothing is changed) and writes to --out (defaul
                    HUC12, NHDPlus catchment, nearest pond/lagoon and stream, Atlas 14
                    25-yr 24-h depth, Stage IV rainfall on --date, FEMA flood zone, nearest
                    water-quality station, nearest ECHO NPDES facility
+  samples.md       --samples records per dataset (default 10), each with links to check it
+                   against the original source (satellite view, FEMA flood map, NOAA Atlas 14
+                   page, ECHO facility report, WQP station page); also as samples/*.csv
   map.html         interactive map (open in a browser; needs internet for the basemap):
                    CAFOs with all the links above in their popup, flood zones, rainfall on
                    --date, Atlas 14 grid, streams and ponds, water-quality stations, ECHO
@@ -35,6 +38,7 @@ import shutil
 import sys
 import tarfile
 import tempfile
+import time
 from collections import Counter
 from datetime import date
 from pathlib import Path
@@ -160,10 +164,11 @@ def colorize(a, vmax, ramp=((247, 251, 255), (107, 174, 214), (8, 48, 107), (255
     return np.dstack([rgb, alpha]).astype("uint8")
 
 
-def popup_html(row, fields):
+def popup_html(row, fields, links=()):
     rows = "".join(f"<tr><th style='text-align:left;padding-right:8px'>{html.escape(k)}</th>"
                    f"<td>{html.escape(str(v))}</td></tr>" for k, v in fields if v not in (None, "", "nan"))
-    return f"<table style='font-size:12px'>{rows}</table>"
+    ln = " · ".join(f"<a href='{html.escape(u)}' target='_blank'>{html.escape(name)}</a>" for name, u in links)
+    return f"<table style='font-size:12px'>{rows}</table>" + (f"<div style='margin-top:4px'>{ln}</div>" if ln else "")
 
 
 def union(geoms):
@@ -176,7 +181,9 @@ def fmt(v, nd=2):
             return ""
     except (TypeError, ValueError):
         pass
-    return f"{v:,.{nd}f}" if isinstance(v, (float, np.floating)) else str(v)
+    if isinstance(v, (float, np.floating)):
+        return f"{v:,.0f}" if float(v).is_integer() else f"{v:,.{nd}f}"
+    return str(v)
 
 
 # ----------------------------------------------------------------------------- datasets
@@ -462,39 +469,82 @@ def stage4_day(raw, day, area, bbox, cafo, sec, layers_out):
 
 
 def nfhl(raw, st, focus_bbox, cafo, utm, sec, layers_out):
+    """Flood zones, read one Parquet row group at a time: a statewide file can hold several GB
+    of polygons (NC: 183,013 polygons, 3.2 GB of geometry), too much to load at once."""
+    import pyarrow.parquet as pq
+    import shapely
+
     f = raw / "nfhl" / st / "flood_hazard_zones.parquet"
     if not f.exists():
         sec.worse("MISSING")
         sec.add(f"no `nfhl/{st}/flood_hazard_zones.parquet` (download unfinished, or no statewide file for {st})")
         return
-    z = gpd.read_parquet(f)
-    sec.add(f"{len(z):,} flood-zone polygons; CRS {z.crs.to_epsg() if z.crs else 'none'}")
-    sec.add(f"by FLD_ZONE:{table(z['FLD_ZONE'].value_counts().to_dict(), ('zone', 'polygons'), 12)}")
-    if "SFHA_TF" in z:
-        sec.add(f"SFHA (1%-annual-chance floodplain, SFHA_TF = T): {int((z['SFHA_TF'] == 'T').sum()):,} polygons")
-    if "DFIRM_ID" in z:
-        sec.add(f"{z['DFIRM_ID'].nunique():,} DFIRM (county/community map) IDs")
-    bad = (~z.geometry.is_valid).sum()
-    if bad:
-        sec.add(f"{int(bad):,} invalid polygons (repaired with make_valid for the joins)")
-        z["geometry"] = z.geometry.make_valid()
-    z = z.to_crs(4326)
+    pf = pq.ParquetFile(f)
+    geo = json.loads(pf.schema_arrow.metadata[b"geo"])
+    crs = geo["columns"]["geometry"].get("crs")
+    names = pf.schema_arrow.names
+    cols = [c for c in ("FLD_ZONE", "ZONE_SUBTY", "SFHA_TF", "DFIRM_ID", "STATIC_BFE", "geometry") if c in names]
+    zones, dfirms, sfha_n, gbytes = Counter(), set(), 0, 0
+    hits, focus = [], []
+    w, s, e, n = focus_bbox
+    pts = cafo.to_crs(crs or 4326) if cafo is not None else None
+    # map window: SFHA within 2 km of CAFOs in the focus box (the whole layer is far too big to draw)
+    window = None
     if cafo is not None:
-        j = gpd.sjoin(cafo[["geometry"]], z[["FLD_ZONE", "SFHA_TF", "geometry"]], predicate="within", how="left")
-        # a point can sit in overlapping polygons; prefer the SFHA one
-        j = j.sort_values("SFHA_TF", ascending=False, na_position="last")
-        j = j[~j.index.duplicated()].sort_index()
-        cafo["flood_zone"] = j["FLD_ZONE"].values
-        cafo["in_sfha"] = (j["SFHA_TF"] == "T").values
+        cf = cafo.cx[w:e, s:n]
+        if len(cf):
+            window = union(cf.to_crs(utm).buffer(2000)).simplify(50)
+            window = gpd.GeoSeries([window], crs=utm).to_crs(crs or 4326).iloc[0]
+    if window is None:
+        window = gpd.GeoSeries([shapely.box(w, s, e, n)], crs=4326).to_crs(crs or 4326).iloc[0]
+    wb = window.bounds
+    for i in range(pf.num_row_groups):
+        tb = pf.read_row_group(i, columns=cols).to_pandas()
+        gbytes += tb["geometry"].map(len).sum()
+        z = gpd.GeoDataFrame(tb.drop(columns="geometry"), geometry=shapely.from_wkb(tb["geometry"].values),
+                             crs=crs or 4326)
+        del tb
+        zones.update(z["FLD_ZONE"].fillna("none"))
+        if "DFIRM_ID" in z:
+            dfirms |= set(z["DFIRM_ID"].dropna())
+        if "SFHA_TF" in z:
+            sfha_n += int((z["SFHA_TF"] == "T").sum())
+        if pts is not None:
+            j = gpd.sjoin(pts[["geometry"]], z[["FLD_ZONE", "SFHA_TF", "geometry"]], predicate="within", how="inner")
+            hits.append(pd.DataFrame(j.drop(columns=["geometry", "index_right"])))
+        sel = z[z["SFHA_TF"] == "T"] if "SFHA_TF" in z else z
+        b = sel.geometry.bounds
+        sel = sel[(b.minx <= wb[2]) & (b.maxx >= wb[0]) & (b.miny <= wb[3]) & (b.maxy >= wb[1])]
+        sel = sel[sel.intersects(window)]
+        if len(sel):
+            sel = sel.copy()
+            sel["geometry"] = sel.geometry.intersection(window)
+            focus.append(sel)
+        del z
+    total = sum(zones.values())
+    sec.add(f"{total:,} flood-zone polygons in {pf.num_row_groups} row groups, {gbytes / 1e9:.2f} GB of geometry; "
+            f"CRS {crs.get('id', {}).get('code') if isinstance(crs, dict) else crs}")
+    sec.add(f"by FLD_ZONE:{table(dict(zones.most_common()), ('zone', 'polygons'), 12)}")
+    sec.add(f"SFHA (1%-annual-chance floodplain, SFHA_TF = T): {sfha_n:,} polygons; "
+            f"{len(dfirms):,} DFIRM (county/community map) IDs")
+    if gbytes > 1e9:
+        sec.add("too large to load at once with geopandas: read it by row group, or only the columns and "
+                "rows you need (e.g. `pyarrow.parquet.read_table(f, filters=[('SFHA_TF', '=', 'T')])`)")
+    if cafo is not None:
+        h = pd.concat(hits) if hits else pd.DataFrame(columns=["FLD_ZONE", "SFHA_TF"])
+        h = h.sort_values("SFHA_TF", ascending=False, na_position="last")  # prefer the SFHA polygon
+        h = h[~h.index.duplicated()]
+        cafo["flood_zone"] = h["FLD_ZONE"].reindex(cafo.index).values
+        cafo["in_sfha"] = (h["SFHA_TF"].reindex(cafo.index) == "T").values
         sec.add(f"CAFO points inside the SFHA: {int(cafo['in_sfha'].sum()):,}; with no zone at all "
                 f"(unmapped area): {int(cafo['flood_zone'].isna().sum()):,}")
         sec.add(f"CAFO points by zone:{table(cafo['flood_zone'].fillna('none').value_counts().to_dict(), ('zone', 'CAFOs'), 8)}")
     sec.checks += ["SFHA polygons line up with the streams and floodplains on the basemap",
                    "a CAFO point marks the farm, not its lagoon or fields; check whether the lagoon itself is in the zone"]
-    w, s, e, n = focus_bbox
-    zf = z.cx[w:e, s:n]
-    zf = zf[zf["SFHA_TF"] == "T"] if "SFHA_TF" in zf else zf
-    layers_out["sfha"] = zf
+    zf = pd.concat(focus) if focus else None
+    if zf is not None and len(zf):
+        layers_out["sfha"] = gpd.GeoDataFrame(zf, geometry="geometry", crs=crs or 4326).to_crs(4326)
+        layers_out["sfha_note"] = "SFHA within 2 km of CAFOs (focus area)"
 
 
 def wqp(raw, st, cafo, utm, sec, layers_out):
@@ -512,17 +562,26 @@ def wqp(raw, st, cafo, utm, sec, layers_out):
         sec.add("no results files")
         return
     cols = ["MonitoringLocationIdentifier", "ActivityStartDate", "CharacteristicName",
-            "ResultMeasureValue", "ResultMeasure/MeasureUnitCode", "ResultSampleFractionText"]
+            "ResultMeasureValue", "ResultMeasure/MeasureUnitCode", "ResultSampleFractionText",
+            "ResultDetectionConditionText", "DetectionQuantitationLimitMeasure/MeasureValue"]
     per = {}
+    picks = []
     counts_station = Counter()
     units = Counter()
+    novalue, conditions = 0, Counter()
     dmin, dmax = None, None
     for f in files:
         y = f.stem.split("_")[-1]
         hdr = pd.read_csv(f, nrows=0).columns
         r = pd.read_csv(f, dtype=str, usecols=[c for c in cols if c in hdr], low_memory=False)
         per[y] = r["CharacteristicName"].value_counts().to_dict() if len(r) else {}
+        if len(r):
+            picks.append(r.sample(min(len(r), 50), random_state=int(y) if y.isdigit() else 0))
         counts_station.update(r["MonitoringLocationIdentifier"].dropna())
+        blank = r["ResultMeasureValue"].isna()
+        novalue += int(blank.sum())
+        if "ResultDetectionConditionText" in r:
+            conditions.update(r.loc[blank, "ResultDetectionConditionText"].fillna("(no reason given)"))
         if "ResultMeasure/MeasureUnitCode" in r:
             units.update((r["CharacteristicName"].fillna("") + " [" + r["ResultMeasure/MeasureUnitCode"].fillna("?") + "]"))
         if len(r):
@@ -536,6 +595,8 @@ def wqp(raw, st, cafo, utm, sec, layers_out):
     sec.add(f"sample dates {dmin:%Y-%m-%d} … {dmax:%Y-%m-%d}" if dmin is not None and pd.notna(dmin)
             else "no dated samples")
     sec.add(f"units in use:{table(dict(units.most_common(12)), ('characteristic [unit]', 'results'), 12)}")
+    if novalue:
+        sec.add(f"results without a value: {novalue:,}; why:{table(dict(conditions.most_common(8)), ('ResultDetectionConditionText', 'results'), 8)}")
     stn["n_results"] = stn["MonitoringLocationIdentifier"].map(counts_station).fillna(0).astype(int)
     sampled = stn[stn["n_results"] > 0]
     sec.add(f"stations with at least one result: {len(sampled):,}")
@@ -556,6 +617,12 @@ def wqp(raw, st, cafo, utm, sec, layers_out):
         sec.add(f"distance from CAFOs to the nearest sampled station within 20 km (m): "
                 f"{stats(cafo['wq_station_dist_m'])}; {int(cafo['wq_station'].isna().sum()):,} CAFOs have none within 20 km")
     layers_out["wq"] = sampled
+    if picks:
+        info = [c for c in ("MonitoringLocationIdentifier", "MonitoringLocationName", "OrganizationIdentifier",
+                            "ProviderName", "MonitoringLocationTypeName") if c in stn]
+        layers_out["wq_results"] = pd.concat(picks).merge(
+            pd.DataFrame(stn[info]).assign(lat=stn.geometry.y, lon=stn.geometry.x),
+            on="MonitoringLocationIdentifier", how="left")
 
 
 def echo(raw, st, cafo, utm, sec, layers_out):
@@ -633,6 +700,138 @@ def other_state_files(raw, st, sec):
             sec.status = "N/A"
 
 
+# ----------------------------------------------------------------------------- samples
+
+def sat(lat, lon):
+    return f"https://www.google.com/maps/@{lat:.6f},{lon:.6f},400m/data=!3m1!1e3"
+
+
+def fema(lat, lon):
+    return f"https://msc.fema.gov/portal/search?AddressQuery={lat:.6f}%2C{lon:.6f}"
+
+
+def pfds(lat, lon):
+    return (f"https://hdsc.nws.noaa.gov/hdsc/pfds/pfds_printpage.html?lat={lat:.4f}&lon={lon:.4f}"
+            "&data=depth&units=english&series=ams")
+
+
+def md_table(df, links=()):
+    """Markdown table; columns named in links hold URLs and are shown as [open](url)."""
+    cols = list(df.columns)
+    rows = ["| " + " | ".join(cols) + " |", "|" + "---|" * len(cols)]
+    for _, r in df.iterrows():
+        cells = []
+        for c in cols:
+            v = r[c]
+            cells.append(f"[open]({v})" if c in links and isinstance(v, str) and v else fmt(v).replace("|", "/"))
+        rows.append("| " + " | ".join(cells) + " |")
+    return "\n".join(rows)
+
+
+def write_samples(out, st, cafo, layers, n, day):
+    """n records per dataset with links to the original sources, as samples.md and samples/*.csv."""
+    parts, folder = [f"# Sample records for {st}", "",
+                     f"{n} records per dataset, drawn at random (seed 42, so a rerun gives the same ones). "
+                     "Open the links and compare with the values here. Satellite links go to Google Maps; "
+                     "FEMA links open the flood map at the point; the NOAA link shows the official "
+                     "Atlas 14 table at the point (the 25-year / 24-hour cell, annual-maximum series, "
+                     "should match `atlas14_in`).", ""], out / "samples"
+    folder.mkdir(exist_ok=True)
+
+    def emit(title, note, df, links=()):
+        if df is None or not len(df):
+            return
+        df.to_csv(folder / (re.sub(r"[^0-9a-z]+", "_", title.lower()).strip("_") + ".csv"), index=False)
+        parts.extend([f"## {title}", "", note, "", md_table(df, links), ""])
+
+    def pick(df, k=n, prefer=None):
+        if len(df) <= k:
+            return df
+        if prefer is not None and prefer.any():  # mix: about half from the preferred rows
+            a = df[prefer].sample(min(int(prefer.sum()), k // 2), random_state=1)
+            b = df.drop(a.index).sample(k - len(a), random_state=2)
+            return pd.concat([a, b])
+        return df.sample(k, random_state=3)
+
+    if cafo is not None:
+        c = cafo.copy()
+        c["lat"], c["lon"] = c.geometry.y, c.geometry.x
+        prefer = c["catchment_id"].notna() if "catchment_id" in c else None
+        c = pd.DataFrame(c.drop(columns="geometry"))
+        flood = c[c["in_sfha"].astype(bool)] if "in_sfha" in c else c.iloc[:0]
+        flood = flood.sample(min(3, len(flood)), random_state=5)  # up to 3 CAFOs in the floodplain
+        rest = c.drop(flood.index)
+        s = pd.concat([flood, pick(rest, n - len(flood), prefer=None if prefer is None else prefer[rest.index])])
+        keep = [x for x in ("cafo_source", "cafo_id", "cafo_name", "animal", "size", "lagoons", "lat", "lon",
+                            "huc12", "pond_dist_m", "pond_fcode", "stream_dist_m", "stream_order",
+                            "atlas14_in", f"rain_{day:%Y%m%d}_in", "flood_zone", "in_sfha",
+                            "wq_station_dist_m", "echo_npdes_within_500m") if x in s]
+        s = s[keep].copy()
+        s["satellite"] = [sat(a, b) for a, b in zip(s["lat"], s["lon"])]
+        s["fema_map"] = [fema(a, b) for a, b in zip(s["lat"], s["lon"])]
+        s["noaa_atlas14"] = [pfds(a, b) for a, b in zip(s["lat"], s["lon"])]
+        emit("CAFOs and everything linked to them",
+             "Check: barns and lagoons visible at the point (satellite); flood zone matches the FEMA map; "
+             "`atlas14_in` matches NOAA's 25-yr 24-hr value; `pond_dist_m` / `pond_fcode` = nearest NHD "
+             "waterbody (is it the lagoon?).",
+             s, links=("satellite", "fema_map", "noaa_atlas14"))
+        rain = f"rain_{day:%Y%m%d}_in"
+        if rain in c:
+            r = c.nlargest(n, rain)
+            r = r[[x for x in ("cafo_id", "cafo_name", "lat", "lon", rain, "atlas14_in") if x in r]].copy()
+            emit(f"Stage IV: wettest CAFOs on {day}",
+                 "Highest 24-h rainfall (ending 12:00 UTC on that day) at CAFO points. Compare with storm "
+                 "reports for the day, and with `atlas14_in`: rain above the design depth means the "
+                 "25-yr 24-h storm was exceeded.", r)
+    if "ponds" in layers and len(layers["ponds"]):
+        p = layers["ponds"]
+        is_named = p["FCode"].isin([43612, 43624])
+        p = pick(p, prefer=is_named)
+        pt = p.geometry.representative_point()
+        d = pd.DataFrame({"NHDPlusID": p["NHDPlusID"].astype(str), "FCode": p["FCode"],
+                          "type": p["FCode"].map(lambda v: FCODES.get(int(v), "") if pd.notna(v) else ""),
+                          "area_m2": (p["AreaSqKm"] * 1e6).round(0), "lat": pt.y, "lon": pt.x})
+        d["satellite"] = [sat(a, b) for a, b in zip(d["lat"], d["lon"])]
+        emit("NHD waterbodies within 1 km of a CAFO",
+             "Check on the satellite view: is it a lagoon (rectangular, next to long barns), a farm pond, "
+             "or natural? Its NHD type is often just Lake/Pond.", d, links=("satellite",))
+    if "sfha" in layers and len(layers["sfha"]):
+        z = pick(layers["sfha"])
+        pt = z.geometry.representative_point()
+        d = pd.DataFrame({k: z[k] for k in ("FLD_ZONE", "ZONE_SUBTY", "DFIRM_ID", "STATIC_BFE") if k in z})
+        if "STATIC_BFE" in d:  # FEMA writes -9999 for "no base flood elevation"
+            d["STATIC_BFE"] = d["STATIC_BFE"].where(d["STATIC_BFE"] > -9000)
+        d["lat"], d["lon"] = pt.y, pt.x
+        d["fema_map"] = [fema(a, b) for a, b in zip(d["lat"], d["lon"])]
+        emit("FEMA flood zones (SFHA, focus area)",
+             "Check: the FEMA map shows the same zone at this point.", d, links=("fema_map",))
+    if "wq_results" in layers:
+        w = layers["wq_results"]
+        w = w.sample(min(n, len(w)), random_state=4)
+        d = w[[c for c in ("MonitoringLocationIdentifier", "MonitoringLocationName", "ActivityStartDate",
+                           "CharacteristicName", "ResultMeasureValue", "ResultMeasure/MeasureUnitCode",
+                           "ResultSampleFractionText", "ResultDetectionConditionText",
+                           "DetectionQuantitationLimitMeasure/MeasureValue", "lat", "lon") if c in w]].copy()
+        if {"ProviderName", "OrganizationIdentifier"} <= set(w.columns):
+            d["wqp_station"] = [f"https://www.waterqualitydata.us/provider/{pr}/{org}/{sid}/"
+                                if isinstance(pr, str) and isinstance(org, str) else ""
+                                for pr, org, sid in zip(w["ProviderName"], w["OrganizationIdentifier"],
+                                                        w["MonitoringLocationIdentifier"])]
+        emit("Water Quality Portal results",
+             "Check: open the station page; the sample with this date, characteristic and value is listed. "
+             "Note the unit.", d, links=("wqp_station",))
+    if "echo_caf" in layers and len(layers["echo_caf"]):
+        e = pick(layers["echo_caf"])
+        d = pd.DataFrame({k: e[k] for k in ("NPDES_ID", "FACILITY_NAME", "CITY", "COUNTY_CODE") if k in e})
+        d["lat"], d["lon"] = e.geometry.y, e.geometry.x
+        d["echo_report"] = [f"https://echo.epa.gov/detailed-facility-report?fid={x}" for x in e["NPDES_ID"]]
+        d["satellite"] = [sat(a, b) for a, b in zip(d["lat"], d["lon"])]
+        emit("ECHO NPDES permits that look like CAFOs",
+             "Check: the ECHO facility report shows the same facility, permit and location.",
+             d, links=("echo_report", "satellite"))
+    (out / "samples.md").write_text("\n".join(parts))
+    return out / "samples.md"
+
 # ----------------------------------------------------------------------------- map
 
 def build_map(path, st, focus_bbox, cafo, hu8, layers):
@@ -666,7 +865,7 @@ def build_map(path, st, focus_bbox, cafo, hu8, layers):
     if "sfha" in layers and len(layers["sfha"]):
         z = layers["sfha"][["FLD_ZONE", "geometry"]].copy()
         z["geometry"] = z.geometry.simplify(0.0002)
-        folium.GeoJson(z.to_json(), name=f"FEMA SFHA, focus area ({len(z):,})", show=False,
+        folium.GeoJson(z.to_json(), name=f"FEMA {layers.get('sfha_note', 'SFHA')} ({len(z):,})", show=False,
                        style_function=lambda f: {"color": "#0ea5e9", "weight": 0.5, "fillColor": "#38bdf8", "fillOpacity": 0.35},
                        tooltip=folium.GeoJsonTooltip(["FLD_ZONE"])).add_to(m)
     if "streams" in layers and len(layers["streams"]):
@@ -699,8 +898,8 @@ def build_map(path, st, focus_bbox, cafo, hu8, layers):
         q = layers["echo_caf"]
         grp = folium.FeatureGroup(name=f"ECHO CAFO permits ({len(q):,})", show=False)
         for _, r in q.iterrows():
-            folium.RegularPolygonMarker([r.geometry.y, r.geometry.x], number_of_sides=4, radius=5, color="#7c3aed",
-                                        fill=True, tooltip=f"{r['NPDES_ID']} {r.get('FACILITY_NAME', '')}").add_to(grp)
+            folium.CircleMarker([r.geometry.y, r.geometry.x], radius=6, color="#7c3aed", weight=2, fill=False,
+                                tooltip=f"{r['NPDES_ID']} {r.get('FACILITY_NAME', '')}").add_to(grp)
         grp.add_to(m)
     if cafo is not None:
         grp = folium.FeatureGroup(name=f"CAFOs ({len(cafo):,})")
@@ -710,14 +909,18 @@ def build_map(path, st, focus_bbox, cafo, hu8, layers):
             color = "#dc2626" if bool(r.get("in_sfha", False)) else "#ea580c"
             folium.CircleMarker([r.geometry.y, r.geometry.x], radius=4, color=color, weight=1, fill=True,
                                 fill_opacity=0.85, tooltip=f"{r['cafo_source']} {r['cafo_id']} {r['cafo_name']}",
-                                popup=folium.Popup(popup_html(r, fields), max_width=420)).add_to(grp)
+                                popup=folium.Popup(popup_html(r, fields, [
+                                    ("satellite", sat(r.geometry.y, r.geometry.x)),
+                                    ("FEMA flood map", fema(r.geometry.y, r.geometry.x)),
+                                    ("NOAA Atlas 14", pfds(r.geometry.y, r.geometry.x))]), max_width=420)).add_to(grp)
         grp.add_to(m)
     folium.Rectangle([[s, w], [n, e]], color="#111827", weight=1, dash_array="6", fill=False,
                      name="Focus area (NHDPlus, flood zones)").add_to(m)
     folium.LayerControl(collapsed=False).add_to(m)
     legend = ("<div style='position:fixed;bottom:20px;left:20px;z-index:9999;background:white;padding:8px;"
               "border:1px solid #999;font-size:12px'><b>" + st + "</b><br>"
-              "<span style='color:#ea580c'>●</span> CAFO &nbsp; <span style='color:#dc2626'>●</span> CAFO in SFHA<br>"
+              "<span style='color:#ea580c'>●</span> CAFO &nbsp; <span style='color:#dc2626'>●</span> CAFO in SFHA &nbsp; "
+              "<span style='color:#7c3aed'>○</span> ECHO CAFO permit<br>"
               "<span style='color:#dc2626'>▭</span> NHD sewage/treatment pond &nbsp; <span style='color:#0891b2'>▭</span> other waterbody<br>"
               "rain / Atlas 14: light → dark blue = 0 → max colour, magenta = above<br>"
               "click a CAFO for every linked value</div>")
@@ -736,6 +939,7 @@ def main() -> int:
     ap.add_argument("--area", default="conus", help="Stage IV area: conus, ak or pr")
     ap.add_argument("--out", type=Path, help="output folder (default inspect_<ST>)")
     ap.add_argument("--min-order", type=int, default=4, help="smallest stream order drawn on the map")
+    ap.add_argument("--samples", type=int, default=10, help="records per dataset in samples.md (0 = none)")
     ap.add_argument("--no-map", action="store_true")
     args = ap.parse_args()
 
@@ -745,10 +949,12 @@ def main() -> int:
     day = date.fromisoformat(args.date)
     secs, layers = [], {}
 
+    t0 = [time.time()]
+
     def section(title):
         s = Section(title)
         secs.append(s)
-        log(f"[{st}] {title}")
+        log(f"[{st}] {title}  (+{time.time() - t0[0]:.0f} s)")
         return s
 
     s_wbd = section("WBD watersheds (state area)")
@@ -798,9 +1004,12 @@ def main() -> int:
     (out / "report.md").write_text("\n".join(md))
     (out / "report.json").write_text(json.dumps(
         {x.title: {"status": x.status, "data": x.data, "notes": x.lines} for x in secs}, indent=2, default=str))
+    if args.samples:
+        write_samples(out, st, cafo, layers, args.samples, day)
     if not args.no_map:
         build_map(out / "map.html", st, focus_bbox, cafo, hu8, layers)
     log(f"\nwrote {out / 'report.md'}" + ("" if args.no_map else f", {out / 'map.html'}")
+        + (f", {out / 'samples.md'}" if args.samples else "")
         + (f", {out / 'cafo_links.csv'}" if cafo is not None else ""))
     for x in secs:
         log(f"  {x.status:8s} {x.title}")

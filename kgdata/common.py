@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import time
 import warnings
@@ -184,3 +185,69 @@ def flag_bbox(gdf, bbox: tuple[float, float, float, float]):
     if bad:
         log(f"    {bad} records with coordinates outside {bbox} (coord_ok = False)")
     return gdf
+
+
+def layer_to_parquet(src, layer: str, dest: Path, columns=None, batch: int = 20_000,
+                     extra: dict | None = None) -> int:
+    """Copy one vector layer to GeoParquet in batches, so memory stays small for huge layers.
+
+    The result is the same as reading the whole layer with geopandas and calling
+    to_parquet (2D WKB geometry, GeoParquet metadata, layer CRS), and is read back with
+    geopandas.read_parquet. `extra` adds constant columns, e.g. {"state": "NC"}.
+    Returns the number of features written.
+    """
+    import pandas as pd
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    import pyogrio
+    import shapely
+
+    info = pyogrio.read_info(src, layer=layer)
+    total = int(info["features"])
+    dest = Path(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    part = dest.with_name(dest.name + ".part")
+    writer, schema, n, crs = None, None, 0, None
+    try:
+        for start in range(0, max(total, 1), batch):
+            gdf = pyogrio.read_dataframe(src, layer=layer, columns=columns, skip_features=start,
+                                         max_features=batch, use_arrow=False)
+            if crs is None:
+                crs = gdf.crs
+            if not len(gdf):
+                if writer is not None:
+                    continue
+            attrs = gdf.drop(columns=gdf.geometry.name)
+            for k, v in (extra or {}).items():
+                attrs[k] = v
+            if schema is None:  # fixed from the first batch; text columns stay text when all-null
+                fields = []
+                for c, dt in attrs.dtypes.items():
+                    if dt == object or pd.api.types.is_string_dtype(dt):  # object or pandas 3 str
+                        typ = pa.string()
+                    elif str(dt).startswith("datetime64"):
+                        typ = pa.timestamp("ms")
+                    else:
+                        typ = pa.from_numpy_dtype(dt)
+                    fields.append(pa.field(c, typ))
+                fields.append(pa.field("geometry", pa.binary()))
+                geo = {"version": "1.0.0", "primary_column": "geometry",
+                       "columns": {"geometry": {"encoding": "WKB", "geometry_types": [],
+                                                "crs": crs.to_json_dict() if crs else None}}}
+                schema = pa.schema(fields, metadata={b"geo": json.dumps(geo).encode()})
+                writer = pq.ParquetWriter(part, schema, compression="snappy")
+            wkb = shapely.to_wkb(shapely.force_2d(gdf.geometry.values), flavor="iso")
+            cols = [pa.array(attrs[f.name].astype(object).where(attrs[f.name].notna(), None)
+                             if pa.types.is_string(f.type) else attrs[f.name], type=f.type, from_pandas=True)
+                    for f in schema if f.name != "geometry"]
+            cols.append(pa.array(wkb, type=pa.binary()))
+            writer.write_table(pa.Table.from_arrays(cols, schema=schema))
+            n += len(gdf)
+            if total > batch:
+                log(f"    {min(start + batch, total):,} / {total:,} features")
+    finally:
+        if writer is not None:
+            writer.close()
+    part.replace(dest)
+    log(f"  wrote {dest} ({n:,} rows)")
+    return n
