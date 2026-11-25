@@ -18,7 +18,12 @@ For every HUC4 the script
     NHDPlusEROMMA         NHDPlusID, QAMA, VAMA                                     Q_w, tau_e = LengthKM / VAMA
     NHDPlusCatchment      NHDPlusID, AreaSqKm, geometry                             drains_to weights
     NHDWaterbody          Permanent_Identifier, NHDPlusID, FType, FCode,            pond nodes V_P
-                          AreaSqKm, geometry
+                          AreaSqKm, FDate, geometry
+    NHDPlusSink           NHDPlusID, PurpCode, SourceFC, FeatureID, Catchment,      terminal points
+                          StatusFlag, geometry (points)                             (water leaves the surface)
+    NHDPlusDivFracMP      NHDPlusID, NodeNumber, DivFrac, StatusFlag                split share f_e at divergences
+
+NHDFlowline and NHDWaterbody also keep FDate (date the feature was last edited in NHD).
 
 Output layout:
     <out>/<HUC4>/<layer>.parquet           per HUC4
@@ -26,7 +31,8 @@ Output layout:
 
 Units / nodata (as published by USGS): QAMA in ft^3/s, VAMA in ft/s, LengthKM in km,
 so travel time in seconds is tau_e = LengthKM * 1000 / (VAMA * 0.3048). EROM
-sentinel values (-9998, -9999) are written as NaN. Islands / some VPUs have no
+sentinel values (-9998, -9999) and DivFrac = -9998 are written as NaN,
+StreamOrde = -9 (no order assigned) as missing. Islands / some VPUs have no
 EROM values at all (empty table).
 
 Geometries are 2D, CRS is the source CRS (NAD83, EPSG:4269). With --bbox or
@@ -65,7 +71,7 @@ ZIP_RE = re.compile(r"NHDPLUS_H_(\d{4})_HU4_GDB\.zip$")
 LAYERS: dict[str, tuple[list[str], bool]] = {
     "NHDFlowline": (
         ["NHDPlusID", "Permanent_Identifier", "FType", "FCode", "LengthKM",
-         "WBArea_Permanent_Identifier"],
+         "WBArea_Permanent_Identifier", "FDate"],
         True,
     ),
     "NHDPlusFlow": (["FromNHDPID", "ToNHDPID"], False),
@@ -73,10 +79,18 @@ LAYERS: dict[str, tuple[list[str], bool]] = {
     "NHDPlusEROMMA": (["NHDPlusID", "QAMA", "VAMA"], False),
     "NHDPlusCatchment": (["NHDPlusID", "AreaSqKm"], True),
     "NHDWaterbody": (
-        ["Permanent_Identifier", "NHDPlusID", "FType", "FCode", "AreaSqKm"],
+        ["Permanent_Identifier", "NHDPlusID", "FType", "FCode", "AreaSqKm", "FDate"],
         True,
     ),
+    "NHDPlusSink": (
+        ["NHDPlusID", "PurpCode", "SourceFC", "FeatureID", "Catchment", "StatusFlag"],
+        True,
+    ),
+    "NHDPlusDivFracMP": (["NHDPlusID", "NodeNumber", "DivFrac", "StatusFlag"], False),
 }
+
+# integer ID columns (stored as 14-digit doubles in the GDB)
+ID_COLUMNS = ("NHDPlusID", "FromNHDPID", "ToNHDPID", "HydroSeq", "NodeNumber", "FeatureID")
 
 # NHD FType codes -> names (added as `ftype_name` for readability)
 FLOWLINE_FTYPES = {
@@ -204,6 +218,10 @@ def read_layer(gdb: Path, layer: str, fields: list[str], spatial: bool, bbox=Non
     import pandas as pd
     import pyogrio
 
+    if layer not in {name for name, _ in pyogrio.list_layers(gdb)}:
+        print(f"    WARNING {layer}: not in this geodatabase; writing an empty table")
+        df = pd.DataFrame(columns=fields)
+        return gpd.GeoDataFrame(df, geometry=gpd.GeoSeries([], crs=4269)) if spatial else df
     colmap = resolve_columns(gdb, layer, fields)
     kwargs = dict(layer=layer, columns=list(colmap.values()), use_arrow=False)
     if spatial:
@@ -231,7 +249,7 @@ def extract_layers(gdb: Path, out_dir: Path, huc4: str, bbox=None, mask=None) ->
         ids = set(frames["NHDFlowline"]["NHDPlusID"])
         flow = frames["NHDPlusFlow"]
         frames["NHDPlusFlow"] = flow[flow["FromNHDPID"].isin(ids) | flow["ToNHDPID"].isin(ids)]
-        for t in ("NHDPlusFlowlineVAA", "NHDPlusEROMMA"):
+        for t in ("NHDPlusFlowlineVAA", "NHDPlusEROMMA", "NHDPlusDivFracMP"):
             frames[t] = frames[t][frames[t]["NHDPlusID"].isin(ids)]
 
     for layer, ftypes in (("NHDFlowline", FLOWLINE_FTYPES), ("NHDWaterbody", WATERBODY_FTYPES)):
@@ -243,6 +261,10 @@ def extract_layers(gdb: Path, out_dir: Path, huc4: str, bbox=None, mask=None) ->
         if c in erom:
             erom[c] = erom[c].where(erom[c] > -9000)  # -9998 / -9999 = not computed
 
+    div = frames["NHDPlusDivFracMP"]
+    if "DivFrac" in div:  # -9998 = fraction not set
+        div["DivFrac"] = pd.to_numeric(div["DivFrac"]).where(lambda s: s >= 0)
+
     vaa = frames["NHDPlusFlowlineVAA"]
     if "StreamOrde" in vaa:  # -9 = no stream order assigned (e.g. coastline reaches)
         vaa["StreamOrde"] = pd.to_numeric(vaa["StreamOrde"]).where(lambda s: s >= 0).astype("Int64")
@@ -250,7 +272,7 @@ def extract_layers(gdb: Path, out_dir: Path, huc4: str, bbox=None, mask=None) ->
     for layer, df in frames.items():
         df = df.copy()
         df["huc4"] = huc4
-        for c in ("NHDPlusID", "FromNHDPID", "ToNHDPID", "HydroSeq"):  # IDs are 14-digit floats in the GDB
+        for c in ID_COLUMNS:
             if c in df:
                 df[c] = pd.to_numeric(df[c]).round().astype("Int64")
         path = out_dir / f"{layer}.parquet"
@@ -271,8 +293,9 @@ def merge_outputs(out_root: Path, hucs: list[str]) -> None:
             continue
         reader = gpd.read_parquet if spatial else pd.read_parquet
         df = pd.concat([reader(p) for p in paths], ignore_index=True)
-        key = ["FromNHDPID", "ToNHDPID"] if layer == "NHDPlusFlow" else (
-            ["Permanent_Identifier"] if layer == "NHDWaterbody" else ["NHDPlusID"])
+        key = {"NHDPlusFlow": ["FromNHDPID", "ToNHDPID"],
+               "NHDWaterbody": ["Permanent_Identifier"],
+               "NHDPlusDivFracMP": ["NHDPlusID", "NodeNumber"]}.get(layer, ["NHDPlusID"])
         df = df.drop_duplicates(subset=key)
         if spatial:
             df = gpd.GeoDataFrame(df, geometry="geometry", crs=reader(paths[0]).crs)

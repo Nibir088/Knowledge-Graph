@@ -27,7 +27,7 @@ https://prd-tnm.s3.amazonaws.com/StagedProducts/Hydrography/NHDPlusHR/Beta/GDB/N
 
 ```
 S3 bucket listing ──> choose HUC4s ──> download zip ──> extract .gdb
-      ──> read 6 layers (selected fields only) ──> clean / filter
+      ──> read 8 layers (selected fields only) ──> clean / filter
       ──> <out>/<HUC4>/<layer>.parquet ──> (optional) <out>/merged/<layer>.parquet
 ```
 
@@ -85,12 +85,17 @@ fields below are read, never the whole layer:
 
 | Layer | Fields read | Geometry | Becomes in the graph |
 |---|---|---|---|
-| `NHDFlowline` | NHDPlusID, Permanent_Identifier, FType, FCode, LengthKM, WBArea_Permanent_Identifier | lines | reach nodes V_R; reach–pond links via WBArea_Permanent_Identifier |
+| `NHDFlowline` | NHDPlusID, Permanent_Identifier, FType, FCode, LengthKM, WBArea_Permanent_Identifier, FDate | lines | reach nodes V_R; reach–pond links via WBArea_Permanent_Identifier |
 | `NHDPlusFlow` | FromNHDPID, ToNHDPID | none | `flows_to` edges |
 | `NHDPlusFlowlineVAA` | NHDPlusID, Divergence, HydroSeq, StreamOrde | none | branch split share f_e; acyclicity check |
 | `NHDPlusEROMMA` | NHDPlusID, QAMA, VAMA | none | discharge Q_w; travel time τ_e |
 | `NHDPlusCatchment` | NHDPlusID, AreaSqKm | polygons | `drains_to` weight f = overlap area ÷ CAFO or field area |
-| `NHDWaterbody` | Permanent_Identifier, NHDPlusID, FType, FCode, AreaSqKm | polygons | pond nodes V_P |
+| `NHDWaterbody` | Permanent_Identifier, NHDPlusID, FType, FCode, AreaSqKm, FDate | polygons | pond nodes V_P |
+| `NHDPlusSink` | NHDPlusID, PurpCode, SourceFC, FeatureID, Catchment, StatusFlag | points | terminal points where water leaves the surface (karst sinks, closed depressions) |
+| `NHDPlusDivFracMP` | NHDPlusID, NodeNumber, DivFrac, StatusFlag | none | split share f_e at divergences (where USGS set it) |
+
+`FDate` is the date the feature was last created or edited in NHD, not the date of
+the source map.
 
 Field names are matched case-insensitively against the geodatabase's actual
 schema. If a field is missing, the script prints a warning listing the fields
@@ -107,6 +112,8 @@ These transformations are applied to every HUC4:
 | `NHDPlusID`, `FromNHDPID`, `ToNHDPID`, `HydroSeq` cast to nullable 64-bit integers | the geodatabase stores these 14-digit IDs as doubles; integers join exactly |
 | `QAMA`, `VAMA` values ≤ -9000 set to NaN | USGS uses -9998 / -9999 for "not computed" |
 | `StreamOrde` value -9 set to NaN (nullable integer) | USGS uses -9 for "no stream order", e.g. on coastline reaches |
+| `DivFrac` value -9998 set to NaN | USGS uses -9998 for "fraction not set" |
+| `NodeNumber`, `FeatureID` cast to nullable 64-bit integers | same reason as the other IDs |
 | `ftype_name` column added to flowlines and waterbodies | readable FType labels (see 3.8) |
 | `huc4` column added to every table | provenance after merging |
 
@@ -162,10 +169,12 @@ FType values in `ftype_name`:
   <HUC4>/NHDPlusEROMMA.parquet           Parquet
   <HUC4>/NHDPlusCatchment.parquet        GeoParquet
   <HUC4>/NHDWaterbody.parquet            GeoParquet
+  <HUC4>/NHDPlusSink.parquet             GeoParquet (points)
+  <HUC4>/NHDPlusDivFracMP.parquet        Parquet
   merged/<layer>.parquet                 with --merge
 ```
 
-A HUC4 whose six Parquet files already exist is skipped unless `--force` is
+A HUC4 whose eight Parquet files already exist is skipped unless `--force` is
 given, so an interrupted run can simply be restarted.
 
 ### 3.10 Merge across HUC4s (optional)
@@ -177,6 +186,7 @@ duplicates are dropped on these keys:
 |---|---|
 | NHDPlusFlow | (FromNHDPID, ToNHDPID) |
 | NHDWaterbody | Permanent_Identifier |
+| NHDPlusDivFracMP | (NHDPlusID, NodeNumber) |
 | all others | NHDPlusID |
 
 Flow rows that cross a HUC4 boundary appear in both neighbouring regions;
@@ -196,10 +206,14 @@ merging joins the networks into one.
   Hawaii). A fallback velocity is needed for those reaches.
 
 - **Split share f_e.** `Divergence` only flags main (1) and minor (2) paths.
-  The geodatabase also has a table `NHDPlusDivFracMP` with a `DivFrac` field
-  (fraction of flow at a split), but this script does not extract it yet, and in
-  HUC4 2002 (Hawaii) every value is -9998. Where no fraction is available, f_e
-  must be assigned, for example proportional to downstream QAMA or as an equal split.
+  `NHDPlusDivFracMP.DivFrac` gives the fraction of flow entering each branch
+  where USGS set it (in HUC4 2002, Hawaii, none are set). Where it is missing,
+  f_e must be assigned, for example proportional to downstream QAMA or as an
+  equal split.
+
+- **Sinks.** Points in `NHDPlusSink` mark where water leaves the surface
+  network. Outlets (`ToNHDPID = 0`) that coincide with a sink end underground
+  rather than flowing on to another region.
 
 - **Outlets.** `ToNHDPID = 0` marks a flow with no downstream reach in the
   network (network outlet or terminal).
