@@ -41,7 +41,7 @@ def run_source(name: str, cfg: dict, out: Path) -> None:
         wqp.run(out, cfg["start_year"], cfg["end_year"], cfg.get("characteristics"),
                 cfg.get("statecode"), cfg.get("countycode"), cfg.get("huc"), cfg.get("bbox"))
     elif name == "echo":
-        echo.run(out, cfg["states"])
+        echo.run(out, cfg.get("states", "all"))
     elif name == "nc_deq":
         nc_deq.run(out)
     elif name == "wa_ecology":

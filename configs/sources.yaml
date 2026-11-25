@@ -36,7 +36,7 @@ wqp:                      # nitrate, ammonia, E. coli samples
   end_year: 2024
 
 echo:                     # ICIS-NPDES facilities, inspections, violations
-  states: [NC, WA, CA]
+  states: all                 # all = whole United States; or a list, e.g. [NC, WA, CA]
 
 nc_deq: {}                # NC permitted animal facilities (CAFOs)
 

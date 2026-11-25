@@ -23,7 +23,7 @@ Set these in `configs/sources.yaml` before a real run. The defaults are examples
 | `stage4.start` / `end` | 2018-09-13 … 20 (Hurricane Florence) | the storm s* |
 | `nfhl.bbox` | Duplin/Sampson Co., NC | study-area box (lon/lat) |
 | `wqp.statecode`, years | NC, WA, CA; 2015–2024 | area and period of samples |
-| `echo.states` | NC, WA, CA | states to keep |
+| `echo.states` | all | `all` for the whole US, or a list of states |
 
 ## Summary
 
@@ -124,17 +124,22 @@ reachable.
 
 - **Source:** `https://echo.epa.gov/files/echodownloads/npdes_downloads.zip`, about
   360 MB zipped and 2.3 GB of CSVs, refreshed weekly.
-- **Steps:** download the whole zip → read each CSV in chunks → keep rows whose permit ID
-  starts with one of the requested state codes (`NC…`, `WA…`, `CA…`) → Parquet.
-  `NPDES_VIOLATION_ENFORCEMENTS` has no permit ID, so it is filtered through the
-  violation IDs kept from the three violation tables.
+- **Steps:** download the whole zip → stream each CSV in chunks into Parquet (all
+  columns as text, so IDs keep leading zeros).
+  - `states: all` keeps **every state and territory**.
+  - `states: [NC, WA]` keeps only rows whose permit ID starts with those state codes.
+    `NPDES_VIOLATION_ENFORCEMENTS` has no permit ID, so it is filtered through the
+    violation IDs kept from the three violation tables.
+  Tables are written chunk by chunk, so the national files never need to fit in memory.
 - **Tables:** `ICIS_FACILITIES` (with `GEOCODE_LATITUDE` / `LONGITUDE`), `ICIS_PERMITS`,
   `NPDES_INSPECTIONS`, `NPDES_PS_/CS_/SE_VIOLATIONS`, `NPDES_VIOLATION_ENFORCEMENTS`,
   formal and informal enforcement actions, `NPDES_QNCR_HISTORY`, NAICS/SIC codes,
   permit components and feature coordinates, data groups.
-- **Tested:** the state filter on `NPDES_NAICS` kept 16,489 rows (NC 11,845, WA 4,478,
-  CA 166).
-- **Output:** `raw/echo/<STATES>/<TABLE>.parquet`, e.g. `raw/echo/CA_NC_WA/ICIS_FACILITIES.parquet`.
+- **Tested:** all states took about 45 s and produced 268 MB of Parquet: 1,263,148
+  facilities in 67 state/territory codes, 1,942,271 inspections, 5,066,543
+  violation–enforcement links. The NC/WA/CA filter kept 113,980 facilities.
+- **Output:** `raw/echo/ALL/<TABLE>.parquet` (all states) or `raw/echo/<STATES>/<TABLE>.parquet`,
+  e.g. `raw/echo/CA_NC_WA/ICIS_FACILITIES.parquet`.
 
 ## `nc_deq`: NC permitted animal facilities (CAFOs)
 
