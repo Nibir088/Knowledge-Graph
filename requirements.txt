@@ -8,3 +8,4 @@ shapely>=2
 pyogrio
 pyarrow
 rasterio
+networkx        # optional: kgdata.graph_io.to_networkx

@@ -103,3 +103,28 @@ as GRIB (2016, 2019, 2020) are read from the tar and converted from mm to inches
 Flood zones are read one row group at a time: a statewide file is large (NC: 183,013
 polygons, 3.2 GB of geometry, more than 14 GB once loaded in geopandas). For NC the whole
 check takes about a minute and under 4 GB of memory.
+
+## Building the knowledge graph
+
+`scripts/build_graph.py` turns the downloaded data for a state into node and edge tables
+(Parquet). Method, every rule and the known limitations: [docs/knowledge_graph.md](docs/knowledge_graph.md).
+
+```bash
+python scripts/build_graph.py --raw /scratch/wyr6fx/knowledge-graph/raw --state NC --out graph_NC
+python scripts/build_graph.py --raw /scratch/wyr6fx/knowledge-graph/raw --state NC \
+    --huc4 0302 0303 --storm 2018-09-13 2018-09-18 --out graph_NC_capefear_neuse
+```
+
+| Nodes | Edges |
+|---|---|
+| `reach` (V_R, NHDPlus flowlines) | `flows_to` reach→reach: split share f_e, discharge Q_w, travel time τ_e |
+| `pond` (V_P, NHD lakes/ponds/reservoirs) | `drains_to` cafo/lagoon/pond/field→reach: overlap-area weight |
+| `lagoon` (V_P, from NC DEQ lagoon counts) | `pond_on_reach`, `has_lagoon` |
+| `cafo` (NC DEQ permits) | `observes` wq_station→reach |
+| `wq_station` (WQP) | `discharges_to` npdes_facility→reach |
+| `npdes_facility` (ECHO) | `same_site` cafo→npdes_facility |
+
+Reaches, CAFOs and lagoons carry flood-zone (FEMA SFHA), design-storm (Atlas 14 R_u) and
+storm rainfall (Stage IV, `--storm`) attributes. Load with
+`kgdata.graph_io.load_tables("graph_NC")`, or `to_networkx(...)` for a networkx graph.
+For the Cape Fear basin (HUC4 0303) the build takes about 2.5 minutes and 5.5 GB of memory.
