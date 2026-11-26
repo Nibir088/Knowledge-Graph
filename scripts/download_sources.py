@@ -7,7 +7,7 @@
 
 Each source skips files it already has, so a failed run can simply be restarted.
 Sources: wbd, atlas14, stage4, nfhl, wqp, echo, nc_deq, ia_dnr, ca_cafo, wa_ecology,
-ca_calwatrs.
+ca_calwatrs, discharges.
 NHDPlus HR has its own script: scripts/download_nhdplus_hr.py.
 """
 
@@ -22,8 +22,8 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from kgdata import (atlas14, ca_cafo, ca_calwatrs, echo, ia_dnr, nc_deq, nfhl,  # noqa: E402
-                    stage4, wa_ecology, wbd, wqp)
+from kgdata import (atlas14, ca_cafo, ca_calwatrs, discharges, echo, ia_dnr, nc_deq,  # noqa: E402
+                    nfhl, stage4, wa_ecology, wbd, wqp)
 
 
 def run_source(name: str, cfg: dict, out: Path) -> None:
@@ -53,6 +53,9 @@ def run_source(name: str, cfg: dict, out: Path) -> None:
         ca_cafo.run(out, cfg.get("sources", ["ciwqs", "ciwqs_report", "cal_ff", "cadd"]),
                     cfg.get("cal_ff_all", False), cfg.get("ciwqs_report_status", "Active"),
                     cfg.get("cadd_url"))
+    elif name == "discharges":
+        discharges.run(out, cfg.get("states", ["NC", "CA", "IA"]), cfg.get("start_year", 2017),
+                       cfg.get("end_year", 2024), cfg.get("keep_zip", False))
     elif name == "wa_ecology":
         wa_ecology.run(out)
     elif name == "ca_calwatrs":

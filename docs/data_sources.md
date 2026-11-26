@@ -183,6 +183,59 @@ reachable.
   together match the earlier state-filtered run exactly.
 - **Output:** `raw/echo/<ST>/<TABLE>.parquet`.
 
+## `discharges`: point-source discharges per facility per year
+
+- **Coverage:** the states in `states:` (default NC, CA, IA), years `start_year`–`end_year`
+  (default 2017–2024). One file per state: `raw/discharges/<ST>/facility_year.parquet`
+  (and `.csv`), one row per facility per year.
+- **Columns (exactly these):**
+
+  | Column | Meaning | Unit |
+  |---|---|---|
+  | `npdes_id` | facility (NPDES permit) ID | |
+  | `year` | calendar year | |
+  | `lat`, `lon` | facility location (EPA geocode) | degrees |
+  | `facility_type` | "Sewage treatment plant (POTW)", "Animal feeding operation (…)", or the facility's industry (SIC description from ECHO) | |
+  | `flow_mgd` | average wastewater flow that year, summed over the facility's outfalls | million gallons/day |
+  | `discharges_to` | receiving water (state water body name; else "<HUC12 name> (HUC12)") | |
+  | `nitrogen_kg` | total nitrogen: "Nitrogen, total [as N]" where reported, else Kjeldahl N + nitrite/nitrate; ammonia alone is not used | kg N/year |
+  | `ammonia_kg` | "Nitrogen, ammonia total [as N]" (dissolved if total is not reported) | kg N/year |
+  | `bacteria_count` | all fecal-indicator bacteria added together (E. coli, fecal coliform, total coliform, enterococci …) | organisms/year |
+  | `total_waste_kg` | every pollutant with a mass load added together | kg/year |
+
+- **Sources:**
+  - EPA **Water Pollutant Loading Tool** web service
+    (`https://echodata.epa.gov/echo/dmr_rest_services.get_custom_data_annual`): yearly
+    loads that EPA computes from the Discharge Monitoring Reports, per facility × outfall ×
+    pollutant, with location, type, flow and receiving water. Fetched per state and year
+    (10,000 rows per page; CA ≈ 79,000 rows per year) in two views: raw parameters, and
+    "nutrient aggregation" (overlapping nitrogen forms merged), which is used for
+    `total_waste_kg` so nitrogen is not counted twice. Loads are pounds/year → kg.
+  - EPA **DMR bulk files**, one per federal fiscal year
+    (`https://echo.epa.gov/files/echodownloads/npdes_dmrs_fy<YYYY>.zip`, 0.5–0.65 GB zipped,
+    ~9 GB of CSV, national). The Loading Tool has no bacteria, so bacteria come from here.
+    The CSV is streamed (FY2018: 73 s, 0.65 GB memory) and only the chosen states' bacteria
+    and flow rows are kept. A fiscal year runs October–September, so calendar years
+    2017–2024 need FY2017–FY2025.
+- **Bacteria rule:** per outfall, bacteria type and monitoring period: the monthly average
+  concentration (organisms/100 mL; weekly averages and daily maxima are not used) at the
+  effluent sampling point × the monthly average flow of that outfall (else of the whole
+  facility that month, else its yearly average) × 3.785×10⁷ (100 mL per million gallons)
+  = organisms/day. The year's value is the mean over the reported periods × days in the
+  year, summed over outfalls and bacteria types. "% of samples exceeding" rows are skipped.
+- **What each state reports (FY2018):** NC fecal coliform (664 facilities), enterococci
+  (38); CA total coliform (232), fecal coliform (130), enterococci (102), E. coli (62);
+  IA E. coli (77), fecal coliform (23).
+- **Watch out:**
+  - Bacteria types overlap (E. coli ⊂ fecal coliform ⊂ total coliform). They are added
+    together as requested, so a facility reporting several types is counted more than
+    once; CA facilities often report several.
+  - `total_waste_kg` adds unlike things (suspended solids, BOD, nutrients, metals …) and
+    overlapping measures such as BOD and COD; it is a "total mass reported" figure.
+  - Only facilities that reported monitoring data in a year appear in that year.
+    Stormwater and construction coverages without monitoring are not listed.
+  - Missing months are not filled with zeros: the year is scaled from the months reported.
+
 ## `nc_deq`: NC permitted animal facilities (CAFOs)
 
 - **Coverage:** North Carolina only; there is no national CAFO list in these sources.
