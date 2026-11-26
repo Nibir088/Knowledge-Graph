@@ -87,7 +87,7 @@ reachable.
 - **Check done:** the `orb` grid at 35.0 N, 78.0 W is 7329 → 7.33 in, matching the
   PFDS point value for the same place (25-yr, 24-hr: 7.33 in).
 - **Optional point mode:** set `atlas14.points` to a CSV of CAFO locations. For each point
-  the PFDS service (`/cgi-bin/hdsc/new/fe_text_mean.csv`) returns every duration ×
+  the PFDS service (`/cgi-bin/new/fe_text_mean.csv`) returns every duration ×
   return period, written to `pfds_points.csv` (one request per second, resumable).
 - **Output:** `raw/atlas14/<region>_25yr24h_in.tif`, `raw/atlas14/pfds_points.csv`.
 
