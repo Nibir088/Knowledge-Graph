@@ -129,3 +129,13 @@ Reaches, CAFOs and lagoons carry flood-zone (FEMA SFHA), design-storm (Atlas 14 
 storm rainfall (Stage IV, `--storm`) attributes. Load with
 `kgdata.graph_io.load_tables("graph_NC")`, or `to_networkx(...)` for a networkx graph.
 For the Cape Fear basin (HUC4 0303) the build takes about 2.5 minutes and 5.5 GB of memory.
+
+### Map of the discharges dataset
+
+```bash
+python scripts/map_discharges.py --raw /scratch/wyr6fx/knowledge-graph/raw --year 2024
+```
+
+Writes `discharges_map_<year>.html`: one dot per facility (colour = facility type, grey =
+stopped that year), one layer per state; clicking a dot shows its row of
+`facility_year.parquet`. `--states NC IA` limits the states, `--year` picks the year.
