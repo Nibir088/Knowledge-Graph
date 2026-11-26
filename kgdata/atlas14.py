@@ -6,7 +6,7 @@ Two ways to get it:
              (partial-duration series, values in 1/1000 inch, ~800 m cells).
              Converted to GeoTIFF in inches: <out>/atlas14/<region>_<RP>yr<DUR>_in.tif
   * points - PFDS point query for each lat/lon in a CSV (e.g. CAFO locations):
-             https://hdsc.nws.noaa.gov/cgi-bin/hdsc/new/fe_text_mean.csv
+             https://hdsc.nws.noaa.gov/cgi-bin/new/fe_text_mean.csv
              -> <out>/atlas14/pfds_points.csv with all durations x return periods.
 
 Region codes that exist for 25yr24h: sw (CA + semiarid SW), orb (Ohio River basin and
@@ -24,7 +24,7 @@ import pandas as pd
 from .common import download, extract_zip, get, log, session
 
 GRID_URL = "https://hdsc.nws.noaa.gov/pub/hdsc/data/{r}/{r}{rp}yr{dur}a.zip"
-PFDS_URL = "https://hdsc.nws.noaa.gov/cgi-bin/hdsc/new/fe_text_mean.csv"
+PFDS_URL = "https://hdsc.nws.noaa.gov/cgi-bin/new/fe_text_mean.csv"
 
 
 def grids(out: Path, regions: list[str], return_period: int = 25, duration: str = "24h") -> None:
