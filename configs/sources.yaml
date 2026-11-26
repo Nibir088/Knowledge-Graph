@@ -71,7 +71,7 @@ ca_calwatrs:              # CA points of diversion + places of use; CA only
   legacy_ewrims: false
 
 discharges:               # point-source discharges per facility per year (EPA DMR / Loading Tool)
-  # columns: npdes_id, year, lat, lon, facility_type, flow_mgd, discharges_to,
+  # columns: npdes_id, year, status, lat, lon, facility_type, flow_mgd, discharges_to,
   #          nitrogen_kg, ammonia_kg, bacteria_count, total_waste_kg
   states: [NC, CA, IA]
   start_year: 2017

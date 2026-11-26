@@ -194,6 +194,7 @@ reachable.
   |---|---|---|
   | `npdes_id` | facility (NPDES permit) ID | |
   | `year` | calendar year | |
+  | `status` | `operating` or `stopped` in that year (see below) | |
   | `lat`, `lon` | facility location (EPA geocode) | degrees |
   | `facility_type` | "Sewage treatment plant (POTW)", "Animal feeding operation (…)", or the facility's industry (SIC description from ECHO) | |
   | `flow_mgd` | average wastewater flow that year, summed over the facility's outfalls | million gallons/day |
@@ -217,6 +218,21 @@ reachable.
     The CSV is streamed (FY2018: 73 s, 0.65 GB memory) and only the chosen states' bacteria
     and flow rows are kept. A fiscal year runs October–September, so calendar years
     2017–2024 need FY2017–FY2025.
+- **Rows and `status`:** every ECHO NPDES facility of the state (needs `echo/<ST>/`), one row
+  per year from the year of its first permit on (no rows before it existed).
+  `operating` = it reported monitoring data that year, or its permit was in force at any time
+  that year; `stopped` = after its permit ended: the termination date of a terminated permit
+  (ECHO status TRM) or the expiration date of an expired, not continued one (EXP). Effective
+  (EFF) and administratively continued (ADC) permits count as in force. For a facility without
+  monitoring data, `flow_mgd` is the permit's reported average flow, in operating years only.
+  NC 2018 test: 7,884 facilities (6,725 operating, 1,159 stopped; 1,003 with pollutant
+  values; 264 without coordinates in ECHO).
+- **`facility_type`:** POTW flag or POTW component → "Sewage treatment plant (POTW)"; CAFO
+  component or livestock SIC 02xx → "Animal feeding operation (…)"; construction stormwater
+  component (or an NC `NCC…` ID) → "Construction site stormwater"; small/large MS4 component →
+  "Municipal stormwater system (MS4)"; industrial stormwater component → "Industrial
+  stormwater (<industry>)"; biosolids only → "Biosolids"; else the industry (SIC description);
+  else "Other / unknown".
 - **Bacteria rule:** per outfall, bacteria type and monitoring period: the monthly average
   concentration (organisms/100 mL; weekly averages and daily maxima are not used) at the
   effluent sampling point × the monthly average flow of that outfall (else of the whole
@@ -232,8 +248,8 @@ reachable.
     once; CA facilities often report several.
   - `total_waste_kg` adds unlike things (suspended solids, BOD, nutrients, metals …) and
     overlapping measures such as BOD and COD; it is a "total mass reported" figure.
-  - Only facilities that reported monitoring data in a year appear in that year.
-    Stormwater and construction coverages without monitoring are not listed.
+  - Pollutant columns are empty for facilities that reported no monitoring data that year
+    (most stormwater, construction and small general-permit facilities).
   - Missing months are not filled with zeros: the year is scaled from the months reported.
 
 ## `nc_deq`: NC permitted animal facilities (CAFOs)
