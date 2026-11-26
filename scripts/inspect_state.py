@@ -712,7 +712,7 @@ def fema(lat, lon):
 
 def pfds(lat, lon):
     return (f"https://hdsc.nws.noaa.gov/hdsc/pfds/pfds_printpage.html?lat={lat:.4f}&lon={lon:.4f}"
-            "&data=depth&units=english&series=ams")
+            "&data=depth&units=english&series=pds")
 
 
 def md_table(df, links=()):
@@ -734,7 +734,7 @@ def write_samples(out, st, cafo, layers, n, day):
                      f"{n} records per dataset, drawn at random (seed 42, so a rerun gives the same ones). "
                      "Open the links and compare with the values here. Satellite links go to Google Maps; "
                      "FEMA links open the flood map at the point; the NOAA link shows the official "
-                     "Atlas 14 table at the point (the 25-year / 24-hour cell, annual-maximum series, "
+                     "Atlas 14 table at the point (the 25-year / 24-hr cell of the partial-duration table, "
                      "should match `atlas14_in`).", ""], out / "samples"
     folder.mkdir(exist_ok=True)
 
