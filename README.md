@@ -152,3 +152,15 @@ Writes `discharges_map_<year>.html` on a satellite basemap, per state:
   Cal-FF 2,121): current lists, not tied to `--year`.
 
 `--states NC IA` limits the states, `--year` picks the year.
+
+### Map of the pollution sources
+
+```bash
+python scripts/map_sources.py --raw /scratch/wyr6fx/knowledge-graph/raw --year 2024
+```
+
+Writes `sources_map_<year>.html` from `raw/sources/<ST>/source_year.parquet` on a satellite
+basemap: CAFOs (orange), sewage treatment plants (blue), industrial facilities (pink), one layer
+per state and type. Filled dot = discharge measured (size = `--size`, default `total_waste_kg`),
+hollow ring = discharge unknown, grey = stopped; cyan lines to the discharge points of the
+measured plants and facilities. Click a source for its row.
