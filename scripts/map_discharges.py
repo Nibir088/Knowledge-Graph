@@ -56,7 +56,10 @@ def main() -> int:
 
     root = args.raw / "discharges"
     states = args.states or sorted(p.name for p in root.iterdir() if (p / "facility_year.parquet").exists())
-    m = folium.Map(location=[38.5, -96], zoom_start=4, tiles="OpenStreetMap", control_scale=True)
+    m = folium.Map(location=[38.5, -96], zoom_start=4, tiles=None, control_scale=True)
+    folium.TileLayer(
+        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        attr="Esri World Imagery", name="Satellite", max_zoom=19).add_to(m)
     counts = {}
     for st in states:
         f = root / st / "facility_year.parquet"
