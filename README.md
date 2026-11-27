@@ -136,6 +136,13 @@ For the Cape Fear basin (HUC4 0303) the build takes about 2.5 minutes and 5.5 GB
 python scripts/map_discharges.py --raw /scratch/wyr6fx/knowledge-graph/raw --year 2024
 ```
 
-Writes `discharges_map_<year>.html`: one dot per facility (colour = facility type, grey =
-stopped that year), one layer per state; clicking a dot shows its row of
-`facility_year.parquet`. `--states NC IA` limits the states, `--year` picks the year.
+Writes `discharges_map_<year>.html` on a satellite basemap, per state:
+- NPDES facilities: colour = facility type, grey = stopped that year, dot size = `--size`
+  (default `total_waste_kg`; also `nitrogen_kg`, `ammonia_kg`, `bacteria_count`, `flow_mgd`);
+  click for the facility's row, hover for where it discharges;
+- lines from each facility to its discharge points (ECHO outfall coordinates, which ECHO
+  stores as packed degrees-minutes-seconds without the minus sign; converted);
+- animal feeding operations from the state lists (NC DEQ 2,099; Iowa DNR 14,316;
+  Cal-FF 2,121): current lists, not tied to `--year`.
+
+`--states NC IA` limits the states, `--year` picks the year.
