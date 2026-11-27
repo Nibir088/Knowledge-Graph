@@ -140,8 +140,13 @@ Writes `discharges_map_<year>.html` on a satellite basemap, per state:
 - NPDES facilities: colour = facility type, grey = stopped that year, dot size = `--size`
   (default `total_waste_kg`; also `nitrogen_kg`, `ammonia_kg`, `bacteria_count`, `flow_mgd`);
   click for the facility's row, hover for where it discharges;
-- lines from each facility to its discharge points (ECHO outfall coordinates, which ECHO
-  stores as packed degrees-minutes-seconds without the minus sign; converted);
+- lines from each facility to its discharge points, ending in a dot at the outfall (ECHO
+  outfall coordinates, stored as packed degrees-minutes-seconds without the minus sign;
+  converted). Shown for facilities that report a discharge; outfalls of the others (mostly
+  stormwater, many per site, into ditches and storm pipes) are a separate layer, off by default.
+  Checked in the Cape Fear basin: wastewater outfalls lie a median 52 m from an NHD stream
+  (49% within 50 m), closer than the facility address points (median 112 m); stormwater
+  outfalls a median 167 m;
 - animal feeding operations from the state lists (NC DEQ 2,099; Iowa DNR 14,316;
   Cal-FF 2,121): current lists, not tied to `--year`.
 

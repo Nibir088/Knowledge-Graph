@@ -9,7 +9,9 @@ Drawn on a satellite basemap, one set of layers per state:
     `--size` column (default total_waste_kg, log scale; small = no value). Click for the
     facility's row; hover shows where it discharges and the size value.
   * Discharge points: a line from each facility to its outfall(s) (ECHO feature coordinates),
-    i.e. where the wastewater enters the water.
+    ending in a dot where the wastewater enters the water; shown for facilities that report
+    a discharge. Outfalls of facilities without discharge data (mostly stormwater: many per
+    site, into ditches and storm pipes) are a separate layer, off by default.
   * Animal feeding operations from the state lists: NC DEQ (NC), Iowa DNR (IA),
     Cal-FF (CA), when those folders exist.
 """
@@ -105,11 +107,16 @@ def outfalls(raw: Path, st: str, fac: pd.DataFrame):
     # distance facility -> outfall (km); skip implausible (> 5 km) and identical points
     d = 111.2 * np.hypot(c["lat"] - c["lat_f"], (c["lon"] - c["lon_f"]) * np.cos(np.radians(c["lat"])))
     c = c[(d > 0.02) & (d < 5)]
-    return [{"type": "Feature",
-             "geometry": {"type": "LineString", "coordinates": [[r.lon_f, r.lat_f], [r.lon, r.lat]]},
-             "properties": {"npdes_id": r.EXTERNAL_PERMIT_NMBR, "outfall": r.PERM_FEATURE_NMBR,
-                            "discharges_to": r.discharges_to or ""}}
-            for r in c.itertuples()]
+    out = []
+    for r in c.itertuples():
+        props = {"npdes_id": r.EXTERNAL_PERMIT_NMBR, "outfall": r.PERM_FEATURE_NMBR,
+                 "discharges_to": r.discharges_to if isinstance(r.discharges_to, str) else "",
+                 "lat": f"{r.lat:.5f}", "lon": f"{r.lon:.5f}"}
+        out.append({"type": "Feature", "properties": props,
+                    "geometry": {"type": "LineString", "coordinates": [[r.lon_f, r.lat_f], [r.lon, r.lat]]}})
+        out.append({"type": "Feature", "properties": props,
+                    "geometry": {"type": "Point", "coordinates": [r.lon, r.lat]}})
+    return out
 
 
 def cafo_layer(raw: Path, st: str):
@@ -166,12 +173,20 @@ def main() -> int:
                           "properties": {**{k: (f"{v:.5f}" if k in ("lat", "lon") else fmt(v)) for k, v in row.items()},
                                          "_c": STOPPED if row["status"] == "stopped" else colour,
                                          "_r": rad(row[args.size])}})
+        # discharge points: shown for facilities that report a discharge (flow or pollutant values);
+        # stormwater-only outfalls (many per site, into ditches/storm pipes) in a layer that is off
+        reporting = set(df.loc[df[["flow_mgd", "nitrogen_kg", "ammonia_kg", "bacteria_count",
+                                   "total_waste_kg"]].notna().any(axis=1), "npdes_id"])
         lines = outfalls(args.raw, st, df)
-        if lines:
-            folium.GeoJson({"type": "FeatureCollection", "features": lines},
-                           name=f"{st}: discharge points ({len(lines):,} outfalls)",
-                           style_function=lambda f: {"color": OUTFALL, "weight": 1.5, "opacity": 0.9},
-                           tooltip=folium.GeoJsonTooltip(fields=["npdes_id", "outfall", "discharges_to"])).add_to(m)
+        for name, sel, show in (("discharge points", True, True), ("stormwater / other outfalls", False, False)):
+            fs = [x for x in lines if (x["properties"]["npdes_id"] in reporting) == sel]
+            if fs:
+                folium.GeoJson({"type": "FeatureCollection", "features": fs}, name=f"{st}: {name} ({len(fs) // 2:,})",
+                               show=show, marker=folium.CircleMarker(radius=3, weight=1, fill=True, fill_opacity=1),
+                               style_function=lambda f: {"color": OUTFALL, "fillColor": OUTFALL, "weight": 1.5,
+                                                         "opacity": 0.9},
+                               tooltip=folium.GeoJsonTooltip(fields=["npdes_id", "outfall", "discharges_to", "lat", "lon"])
+                               ).add_to(m)
         folium.GeoJson(
             {"type": "FeatureCollection", "features": feats},
             name=f"{st} {args.year}: {len(df):,} NPDES facilities (size = {args.size})",
@@ -191,13 +206,14 @@ def main() -> int:
                            tooltip=folium.GeoJsonTooltip(fields=cols[:3]),
                            popup=folium.GeoJsonPopup(fields=cols, max_width=380)).add_to(m)
         print(f"{st} {args.year}: {len(df):,} NPDES facilities ({int((df['status'] == 'stopped').sum()):,} stopped), "
-              f"{len(lines):,} outfall lines, {n:,} animal feeding operations")
+              f"{len(lines) // 2:,} outfalls, {n:,} animal feeding operations")
     folium.LayerControl(collapsed=False).add_to(m)
     dot = "<span style='display:inline-block;width:10px;height:10px;border-radius:50%;background:{};border:1px solid #111'></span>"
     legend = "".join(f"<div>{dot.format(c)} {l}</div>" for l, c, _ in GROUPS)
     legend += f"<div>{dot.format(STOPPED)} stopped (any type)</div>"
     legend += f"<div style='margin-top:4px'>dot size = {args.size} (log scale)</div>"
-    legend += f"<div><span style='display:inline-block;width:14px;border-top:2px solid {OUTFALL}'></span> line to discharge point</div>"
+    legend += (f"<div><span style='display:inline-block;width:14px;border-top:2px solid {OUTFALL}'></span>"
+               f"<span style='color:{OUTFALL}'>●</span> line to discharge point (outfall)</div>")
     legend += (f"<div><span style='display:inline-block;width:9px;height:9px;border-radius:50%;"
                f"border:2px solid {CAFO}'></span> animal feeding operation (state list)</div>")
     m.get_root().html.add_child(folium.Element(
