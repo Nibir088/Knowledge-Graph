@@ -29,6 +29,8 @@ nodes, edges = load_tables("graph_NC")        # dicts of DataFrames
 G = to_networkx(nodes, edges)                 # networkx.MultiDiGraph (pip install networkx)
 ```
 
+![Graph schema: landscape (A) and knowledge graph (B)](figures/graph_schema.png)
+
 ## Output
 
 ```
