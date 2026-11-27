@@ -78,6 +78,8 @@ MG_TO_100ML = 3.785411784e6 * 10          # 1 million gallons = 3.785e9 mL = 3.7
 COLUMNS = ["npdes_id", "year", "status", "lat", "lon", "facility_type", "flow_mgd", "discharges_to",
            "nitrogen_kg", "ammonia_kg", "bacteria_count", "total_waste_kg"]
 BACTERIA_RE = re.compile(r"coli|enterococ|coliform", re.I)
+# livestock and poultry (not aquaculture 0273, horses 0272 or fur farms 0271)
+LIVESTOCK_SIC = {"0211", "0212", "0213", "0214", "0219", "0241", "0251", "0252", "0253", "0254", "0259"}
 FLOW_RE = re.compile(r"^flow", re.I)      # every "Flow, ..." parameter reported in MGD
 BACT_LOCATIONS = ["1", "A"]                # effluent gross, then the other effluent point used in IA
 
@@ -251,7 +253,7 @@ def facility_type(potw, sic, sic_desc: dict) -> str:
         return "Sewage treatment plant (POTW)"
     s = str(sic or "").strip()
     d = sic_desc.get(s)
-    if s.startswith("02"):
+    if s in LIVESTOCK_SIC:
         return f"Animal feeding operation ({d or 'SIC ' + s})"
     return d or (f"SIC {s}" if s and s != "None" else "Other / unknown")
 
@@ -314,7 +316,7 @@ def facility_type_echo(npdes_id, potw, comps: set, sic, sic_desc: dict) -> str:
     s = str(sic or "")
     if str(potw).upper() == "POTW" or "POT" in comps:
         return "Sewage treatment plant (POTW)"
-    if "CAF" in comps or s.startswith("02"):
+    if "CAF" in comps or s in LIVESTOCK_SIC:
         return f"Animal feeding operation ({sic_desc.get(s) or 'SIC ' + s if s else 'CAFO'})"
     if "SWC" in comps or str(npdes_id).upper().startswith("NCC"):   # NCC: NC construction coverages
         return "Construction site stormwater"

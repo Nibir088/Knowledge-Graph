@@ -252,6 +252,41 @@ reachable.
     (most stormwater, construction and small general-permit facilities).
   - Missing months are not filled with zeros: the year is scaled from the months reported.
 
+## `sources`: pollution source list (CAFOs, sewage treatment plants, industrial facilities)
+
+Built, not downloaded: `python scripts/build_sources.py --raw <raw>` after the `discharges`
+step. Output `raw/sources/<ST>/source_year.parquet` (+ `.csv`), one row per source per year.
+
+| Column | Meaning |
+|---|---|
+| `source_id` | NPDES ID (plants, facilities); NC DEQ permit number, `IA-AFO-<progid>` or `CA-CALFF-<id>` (CAFOs) |
+| `year` | 2017–2024 |
+| `source_type` | `CAFO`, `Sewage treatment plant`, `Industrial facility` |
+| `status` | `operating` / `stopped` that year |
+| `discharge` | `measured` (flow or pollutant values that year) / `unknown` (operating, no data) / `none` (stopped) |
+| `lat`, `lon` | location (EPA geocode; state list for CAFOs) |
+| `detail` | industry, or animal type for CAFOs |
+| `animal_count` | CAFOs: NC allowable count; Iowa sum of head counts; Cal-FF none |
+| `npdes_id` | the NPDES permit, when there is one |
+| `flow_mgd` … `total_waste_kg` | from the discharges dataset |
+
+- **Sewage treatment plant:** POTWs plus private domestic-sewage plants (SIC 4952 sewerage
+  systems; apartments, dwellings, mobile-home parks, subdivisions, hotels, camps, RV parks,
+  nursing homes, schools, colleges, residential care, prisons).
+- **Industrial facility:** every other NPDES facility, except construction (and SIC 15–17),
+  industrial-stormwater-only, municipal stormwater (MS4) and biosolids-only permits; an
+  "Other / unknown" facility only if it reported a discharge.
+- **CAFO:** the state lists. NPDES permits with livestock/poultry SIC (0211–0219, 0241,
+  0251–0259; not aquaculture), a CAFO permit component, or (NC) an ID on NC DEQ's list are
+  attached to the listed farm (NC by permit number, IA/CA by nearest listed CAFO within
+  500 m); unmatched ones become their own CAFO nodes.
+- **CAFO status:** NC DEQ = operating (current permits); Iowa DNR `Inactive` = stopped (year
+  not given, so stopped in every year); Cal-FF: no row before its construction date, stopped
+  after its destruction date.
+- **NC 2018 test:** CAFOs 2,105 (2,100 unknown, 5 stopped); sewage treatment plants 2,080
+  (655 measured, 1,284 unknown, 141 stopped); industrial facilities 1,546 (465 measured,
+  633 unknown, 448 stopped); 4,247 NPDES facilities left out.
+
 ## `nc_deq`: NC permitted animal facilities (CAFOs)
 
 - **Coverage:** North Carolina only; there is no national CAFO list in these sources.
