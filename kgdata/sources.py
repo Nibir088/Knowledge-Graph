@@ -18,7 +18,7 @@ Columns
     lat, lon
     detail          industry (SIC description) for facilities; animal type for CAFOs
     animal_count    CAFOs: NC allowable count; Iowa DNR sum of head counts; Cal-FF has none
-    npdes_id        the NPDES permit when the source has one (CAFOs: matched, see below)
+    npdes_id        the NPDES permit (plants and facilities; empty for CAFOs)
     flow_mgd, discharges_to, nitrogen_kg, ammonia_kg, bacteria_count, total_waste_kg
                     from the discharges dataset (empty unless measured)
 
@@ -33,8 +33,8 @@ Classification of NPDES facilities (by ECHO industry code, SIC, where available)
                             municipal stormwater (MS4) and biosolids-only permits
     Industrial facility     every other NPDES facility; one of unknown type only when it
                             reported a discharge
-CAFOs from the state lists are the CAFO nodes. NPDES CAFO permits are attached to them (NC by
-permit number, IA/CA by nearest listed CAFO within 500 m); unmatched ones are added.
+CAFOs come only from the state lists (NC DEQ, Iowa DNR, Cal-FF); NPDES permits of CAFOs
+(livestock SIC, CAFO permit component, or an NC DEQ animal permit number) are left out.
 CAFO status: NC DEQ list = operating (permitted now); Iowa DNR "Inactive" = stopped (the year
 it stopped is not given); Cal-FF: not yet built before its construction date (no row),
 stopped after its destruction date, else operating.
@@ -130,15 +130,6 @@ def cafo_list(raw: Path, st: str, years) -> pd.DataFrame | None:
     return c
 
 
-def _nearest(a: pd.DataFrame, b: pd.DataFrame, max_m: float = 500):
-    """For each row of a (lat/lon), the index of the nearest row of b within max_m, else None."""
-    import geopandas as gpd
-    ga = gpd.GeoDataFrame(a[[]], geometry=gpd.points_from_xy(a["lon"], a["lat"]), crs=4326).to_crs(5070)
-    gb = gpd.GeoDataFrame(b[["source_id"]], geometry=gpd.points_from_xy(b["lon"], b["lat"]), crs=4326).to_crs(5070)
-    j = gpd.sjoin_nearest(ga, gb, max_distance=max_m, how="left")
-    return j[~j.index.duplicated()]["source_id"].reindex(ga.index)
-
-
 # ----------------------------------------------------------------------------- run
 
 def run(raw: Path, states=("NC", "CA", "IA"), start_year: int = 2017, end_year: int = 2024) -> None:
@@ -169,29 +160,13 @@ def run(raw: Path, states=("NC", "CA", "IA"), start_year: int = 2017, end_year: 
         d["detail"] = d["facility_type"].map(_detail)
         d["animal_count"] = np.nan
         fac = d[d["source_type"] != "CAFO"]
-        npdes_cafo = d[d["source_type"] == "CAFO"]
-
+        n_npdes_cafo = d.loc[d["source_type"] == "CAFO", "npdes_id"].nunique()
+        if n_npdes_cafo:
+            log(f"  {n_npdes_cafo:,} NPDES permits of CAFOs left out: CAFOs come from the state list only")
         cafo = cafo_list(raw, st, years)
-        if cafo is not None and len(npdes_cafo):
-            # attach NPDES CAFO permits to listed CAFOs: NC by permit number, else nearest within 500 m
-            ids = npdes_cafo.drop_duplicates("npdes_id")
-            if st == "NC":
-                match = ids["npdes_id"].where(ids["npdes_id"].isin(set(cafo["source_id"])))
-            else:
-                match = _nearest(ids, cafo.drop_duplicates("source_id"))
-            m = dict(zip(ids["npdes_id"], match.values))
-            npdes_cafo = npdes_cafo.assign(_to=npdes_cafo["npdes_id"].map(m))
-            hit = npdes_cafo[npdes_cafo["_to"].notna()]
-            vals = hit.set_index(["_to", "year"])[VALUES + ["discharges_to", "npdes_id"]]
-            vals = vals[~vals.index.duplicated()]
-            cafo = cafo.join(vals, on=["source_id", "year"])
-            extra = npdes_cafo[npdes_cafo["_to"].isna()].drop(columns="_to")
-            log(f"  NPDES CAFO permits: {ids['npdes_id'].nunique():,}; matched to listed CAFOs "
-                f"{int(match.notna().sum()):,}; added as their own CAFO nodes {extra['npdes_id'].nunique():,}")
-            cafo = pd.concat([cafo, extra], ignore_index=True)
-        elif cafo is None:
-            cafo = npdes_cafo
-            log("  no state CAFO list on disk: CAFOs are the NPDES CAFO permits only")
+        if cafo is None:
+            log("  no state CAFO list on disk for this state: no CAFO rows")
+            cafo = pd.DataFrame(columns=COLUMNS)
         out = pd.concat([fac, cafo], ignore_index=True)
         for c in COLUMNS:
             if c not in out:
