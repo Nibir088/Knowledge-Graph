@@ -164,3 +164,18 @@ basemap: CAFOs (orange), sewage treatment plants (blue), industrial facilities (
 per state and type. Filled dot = discharge measured (size = `--size`, default `total_waste_kg`),
 hollow ring = discharge unknown, grey = stopped; cyan lines to the discharge points of the
 measured plants and facilities. Click a source for its row.
+
+Water network under the sources (NHDPlus HR + WBD):
+
+```bash
+python scripts/map_sources.py --raw /scratch/wyr6fx/knowledge-graph/raw --year 2024 \
+    --states NC --detail-huc8 03030006 03030007
+```
+
+- every state: HUC8 watershed outlines (hover for the code) and rivers of stream order
+  ≥ `--rivers-min-order` (default 6; 0 = none);
+- `--detail-huc8`: watersheds drawn in full: every stream and canal (colour = mean velocity,
+  canals orange, width = order; hover for flow, velocity, order, reach ID), flow-direction
+  arrows, the catchment of each reach (layer off by default), and lakes/ponds, reservoirs,
+  swamps and sewage ponds. One HUC8 (e.g. Black River, 03030006: 14,045 reaches, 13,280
+  catchments, 4,776 waterbodies) adds about 15 MB to the HTML, so pick a few.
