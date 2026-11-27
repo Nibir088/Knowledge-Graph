@@ -1,0 +1,80 @@
+# Machine-readable ontology of the knowledge graph (version 0.1). Prose: docs/ontology.md
+
+parameters:
+  h3_fine: 8            # ~0.74 km², ~460 m edge
+  h3_coarse: 7          # ~5.2 km²
+  segment_length_m: 500
+  pond_lake_threshold_ha: 8
+  outfall_snap_m: 500
+  station_snap_m: 250
+  include_wetland: false
+
+levels:                 # top to bottom
+  - {level: L1, types: [V_huc4], branch: hydrologic}
+  - {level: L2, types: [V_huc8], branch: hydrologic}
+  - {level: L3, types: [V_huc12], branch: hydrologic}
+  - {level: L1, types: [V_state], branch: administrative}
+  - {level: L4, types: [V_cell], res: 7}
+  - {level: L5, types: [V_cell], res: 8}
+  - {level: L6, types: [V_reach, V_segment, V_pond, V_lake, V_reservoir, V_wetland, V_estuary,
+                        V_cafo, V_lagoon, V_sewage, V_indus, V_crop, V_outfall, V_station]}
+
+node_types:
+  V_state:     {group: region, source: "—", key: postal code}
+  V_huc4:      {group: region, source: WBD, key: huc4}
+  V_huc8:      {group: region, source: WBD, key: huc8}
+  V_huc12:     {group: region, source: WBD, key: huc12}
+  V_cell:      {group: grid, source: H3, key: h3 index, attributes: [res]}
+  V_reach:     {group: water, source: NHDPlus HR NHDFlowline + NHDPlusCatchment, key: NHDPlusID,
+                rule: "FType in StreamRiver, ArtificialPath, CanalDitch, Connector, Pipeline, UndergroundConduit"}
+  V_segment:   {group: water, source: derived from V_reach, key: "<NHDPlusID>-<n>", rule: "fixed length from upstream end"}
+  V_pond:      {group: water, source: NHDWaterbody, key: Permanent_Identifier,
+                rule: "FType 390 and area < threshold; or FType 436 with FCode 43612/43624 (treatment = true)"}
+  V_lake:      {group: water, source: NHDWaterbody, key: Permanent_Identifier, rule: "FType 390 and area >= threshold"}
+  V_reservoir: {group: water, source: NHDWaterbody, key: Permanent_Identifier, rule: "FType 436 except FCode 43612/43624"}
+  V_wetland:   {group: water, source: NHDWaterbody, key: Permanent_Identifier, rule: "FType 466; optional"}
+  V_estuary:   {group: water, source: NHDWaterbody, key: Permanent_Identifier, rule: "FType 493"}
+  V_cafo:      {group: source, source: NC DEQ / Iowa DNR / Cal-FF, key: state facility id}
+  V_lagoon:    {group: source, source: NC DEQ counts (lagoon points when available), key: "<cafo>:<n>"}
+  V_sewage:    {group: source, source: ECHO + DMR (sources.parquet), key: NPDES ID}
+  V_indus:     {group: source, source: ECHO + DMR (sources.parquet), key: NPDES ID}
+  V_crop:      {group: source, source: to be provided, key: field id}
+  V_outfall:   {group: source, source: ECHO NPDES_PERM_FEATURE_COORDS, key: "<NPDES ID>-<outfall>"}
+  V_station:   {group: observation, source: WQP, key: MonitoringLocationIdentifier}
+
+relations:
+  # spatial
+  - {name: contains, from: V_huc4, to: V_huc8, family: spatial}
+  - {name: contains, from: V_huc8, to: V_huc12, family: spatial}
+  - {name: contains, from: V_huc12, to: V_cell, family: spatial, rule: "cell centre in HUC12; exactly one"}
+  - {name: contains, from: V_state, to: V_cell, family: spatial, rule: "cell centre in state; exactly one"}
+  - {name: contains, from: V_cell, to: V_cell, family: spatial, rule: "H3 parent (res 7) -> child (res 8)"}
+  - {name: contains, from: V_cell, to: "*entity", family: spatial, rule: "entity lies at least partly in the cell; level by loc_quality"}
+  - {name: adjacent, from: V_cell, to: V_cell, family: spatial, symmetric: true, rule: "share an edge; same resolution"}
+  # hydrological
+  - {name: flows_to, from: V_reach, to: V_reach, family: hydro, attributes: [f_e, Q_w, tau_e], rule: "NHDPlusFlow; HydroSeq decreases"}
+  - {name: flows_to, from: V_segment, to: V_segment, family: hydro, attributes: [length_m]}
+  - {name: contains, from: V_reach, to: V_segment, family: hydro}
+  - {name: drains_to, from: [V_cafo, V_lagoon, V_crop, V_pond, V_wetland], to: V_reach, family: hydro,
+     attributes: [weight], rule: "area share in catchments; sum <= 1 per source; V_pond only if off stream"}
+  - {name: discharges_to, from: V_outfall, to: V_segment, family: hydro, attributes: [snap_m], rule: "nearest network segment within outfall_snap_m"}
+  - {name: on_flowpath, from: [V_pond, V_lake, V_reservoir, V_estuary], to: V_reach, family: hydro, rule: "WBArea_Permanent_Identifier"}
+  - {name: drains_to, from: V_huc12, to: V_huc12, family: hydro, rule: "WBD tohuc"}
+  - {name: observes, from: V_station, to: V_segment, family: hydro, attributes: [snap_m], rule: "nearest network segment within station_snap_m"}
+  # ownership
+  - {name: has_lagoon, from: V_cafo, to: V_lagoon, family: ownership}
+  - {name: has_outfall, from: [V_sewage, V_indus], to: V_outfall, family: ownership}
+
+constraints:
+  - "every entity with coordinates has >= 1 incoming contains from a V_cell"
+  - "each res-8 cell: exactly one res-7 parent, one V_huc12, one V_state"
+  - "flows_to (reach) is acyclic; HydroSeq(from) > HydroSeq(to)"
+  - "for each reach with out-edges: sum f_e = 1"
+  - "for each source: sum drains_to.weight <= 1"
+  - "V_sewage and V_indus reach water only via has_outfall -> discharges_to"
+  - "V_cafo, V_lagoon, V_crop reach water only via drains_to"
+
+time_varying:           # stored per (node, time), not as nodes
+  per_year: {nodes: [V_cafo, V_sewage, V_indus], fields: [status, discharge, flow_mgd, nitrogen_kg, ammonia_kg, bacteria_count, total_waste_kg]}
+  per_day: {nodes: [V_cell], fields: [stage4_rain_in]}
+  static: {nodes: [V_cell], fields: [atlas14_r_u_in, sfha_share]}

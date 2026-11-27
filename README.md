@@ -179,3 +179,8 @@ python scripts/map_sources.py --raw /scratch/wyr6fx/knowledge-graph/raw --year 2
   arrows, the catchment of each reach (layer off by default), and lakes/ponds, reservoirs,
   swamps and sewage ponds. One HUC8 (e.g. Black River, 03030006: 14,045 reaches, 13,280
   catchments, 4,776 waterbodies) adds about 15 MB to the HTML, so pick a few.
+
+## Ontology
+
+Node types, relations, levels and rules of the graph: [docs/ontology.md](docs/ontology.md)
+(machine-readable: `configs/ontology.yaml`).

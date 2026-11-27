@@ -126,7 +126,7 @@
     <line x1="808" y1="320" x2="884" y2="232" stroke="#0369a1" stroke-width="1.8" stroke-dasharray="3,3" marker-end="url(#ac)"/>
     <text x="842" y="318" fill="#0369a1" transform="rotate(-49 842 318)">drains_to (w)</text>
     <line x1="1180" y1="114" x2="1180" y2="182" stroke="#0369a1" stroke-width="1.8" marker-end="url(#ac)"/>
-    <text x="1188" y="150" fill="#0369a1">pond_on_reach</text>
+    <text x="1188" y="150" fill="#0369a1">on_flowpath</text>
     <line x1="1310" y1="118" x2="1206" y2="190" stroke="#0369a1" stroke-width="1.8" marker-end="url(#ac)"/>
     <line x1="1318" y1="276" x2="1210" y2="222" stroke="#0891b2" stroke-width="2.5" marker-end="url(#ac)"/>
     <text x="1232" y="236" fill="#0e7490">discharges_to</text>
@@ -172,7 +172,7 @@
   <!-- region nodes -->
   <g font-size="11">
     <line x1="1016" y1="428" x2="842" y2="548" stroke="#6b7280" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#ag)"/>
-    <text x="930" y="512" fill="#4b5563" transform="rotate(-34 930 512)">in_region</text>
+    <text x="930" y="512" fill="#4b5563" transform="rotate(-34 930 512)">contains (via cell)</text>
     <line x1="862" y1="495" x2="812" y2="545" stroke="#6b7280" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#ag)"/>
     <rect x="726" y="548" width="116" height="30" rx="3" fill="#f3f4f6" stroke="#4b5563" stroke-width="2"/>
     <text x="784" y="567" text-anchor="middle" font-weight="bold" fill="#111827">HUC12 (region)</text>
@@ -181,7 +181,7 @@
     <rect x="902" y="548" width="58" height="30" rx="3" fill="#f3f4f6" stroke="#4b5563" stroke-width="2"/>
     <text x="931" y="567" text-anchor="middle" font-weight="bold" fill="#111827">HUC8</text>
     <text x="966" y="567" fill="#4b5563">→ HUC4 → state</text>
-    <text x="726" y="596" fill="#4b5563" font-size="10">every node is in_region of one HUC12 (sources, ponds, reaches); HUC12 drains_to HUC12 (WBD)</text>
+    <text x="726" y="596" fill="#4b5563" font-size="10">HUC12 contains cells, cells contain the entities (see docs/ontology.md); HUC12 drains_to HUC12 (WBD)</text>
   </g>
   <!-- notes B -->
   <g font-size="12" fill="#374151">
@@ -191,7 +191,7 @@
     <text x="726" y="676">design storm R_u (Atlas 14), floodplain share (FEMA SFHA)</text>
     <text x="726" y="700" font-weight="bold">Edges</text>
     <text x="726" y="718">flows_to: reach → reach (NHDPlus, given) · drains_to: land source → reach of its catchment (weight = area share)</text>
-    <text x="726" y="736">discharges_to: plant / facility → reach at its outfall · pond_on_reach: the reach runs through the pond</text>
+    <text x="726" y="736">discharges_to: plant / facility → reach at its outfall · on_flowpath: the reach runs through the pond</text>
     <text x="726" y="754">has_lagoon: CAFO → lagoon · CAFO and lagoons have no pipe: they reach water only via runoff, overflow, seepage</text>
   </g>
 </svg>
